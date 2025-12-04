@@ -116,46 +116,39 @@ class DeepfakeDetector:
     
     def train(self):
         """Train machine learning model on labelled data"""
-        self._report_progress("Starting training process...")
+        print("Loading datasets...")
         
         # Load real and fake datasets
-        self._report_progress("Loading real dataset...", 0)
         X_real, y_real = self.load_dataset(self.real_dataset, 0)  # 0 = real
-        
-        self._report_progress("Loading fake dataset...", 33)
         X_fake, y_fake = self.load_dataset(self.deepfake_dataset, 1)  # 1 = fake
         
         if len(X_real) == 0 or len(X_fake) == 0:
-            self._report_progress("Error: Datasets not properly loaded")
+            print("Error: Datasets not properly loaded")
             return None
         
         # Combine datasets
-        self._report_progress("Combining datasets...", 66)
         X = np.array(X_real + X_fake)
         y = np.array(y_real + y_fake)
         
-        self._report_progress(f"Total samples: {len(X)} (Real: {len(X_real)}, Fake: {len(X_fake)})", 70)
+        print(f"Total samples: {len(X)} (Real: {len(X_real)}, Fake: {len(X_fake)})")
         
         # Split to 80-20
-        self._report_progress("Splitting data to 80-20...", 75)
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
         # Train model
-        self._report_progress("Training model (this may take a while)...", 80)
-        self.model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, verbose=1)
+        print("Training model...")
+        self.model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
         self.model.fit(X_train, y_train)
         
         # Test on 20% data
-        self._report_progress("Testing model on validation set...", 90)
         y_pred = self.model.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
         
-        self._report_progress(f"Model accuracy: {accuracy:.4f}", 95)
+        print(f"Model accuracy: {accuracy:.4f}")
         
         # Save model
-        self._report_progress("Saving model...", 98)
         joblib.dump(self.model, self.model_path)
-        self._report_progress(f"Model saved to {self.model_path}", 100)
+        print(f"Model saved to {self.model_path}")
         
         # Log result
         self._log_training(accuracy, len(X_train), len(X_test))
@@ -164,67 +157,61 @@ class DeepfakeDetector:
     
     def maintain(self, new_data_path, label):
         """Maintain model with new data"""
-        self._report_progress("Running maintenance...", 0)
+        print("Running maintenance...")
         
         # Check if data is properly labelled
         if label not in [0, 1]:
-            self._report_progress("Error: Data not properly labelled as real (0) or fake (1)")
+            print("Error: Data not properly labelled as real (0) or fake (1)")
             return False
         
         # Load existing model
-        self._report_progress("Loading existing model...", 10)
         if os.path.exists(self.model_path):
             self.model = joblib.load(self.model_path)
         else:
-            self._report_progress("Error: No existing model found. Run train() first.")
+            print("Error: No existing model found. Run train() first.")
             return False
         
         # Load new data
-        self._report_progress("Loading new data...", 20)
         X_new, y_new = self.load_dataset(new_data_path, label)
         
         if len(X_new) == 0:
-            self._report_progress("Error: No valid data found")
+            print("Error: No valid data found")
             return False
         
         X_new = np.array(X_new)
         y_new = np.array(y_new)
         
         # Test random set with old model
-        self._report_progress("Testing with old model...", 60)
         indices = np.random.choice(len(X_new), min(len(X_new), 50), replace=False)
         X_test = X_new[indices]
         y_test = y_new[indices]
         
         old_pred = self.model.predict(X_test)
         old_accuracy = accuracy_score(y_test, old_pred)
-        self._report_progress(f"Old model accuracy on new data: {old_accuracy:.4f}", 70)
+        print(f"Old model accuracy on new data: {old_accuracy:.4f}")
         
         # Fine-tune with new data
-        self._report_progress("Fine-tuning model with new data...", 75)
         self.model.fit(X_new, y_new)
         
         # Test again with another random set
-        self._report_progress("Testing with fine-tuned model...", 85)
         indices2 = np.random.choice(len(X_new), min(len(X_new), 50), replace=False)
         X_test2 = X_new[indices2]
         y_test2 = y_new[indices2]
         
         new_pred = self.model.predict(X_test2)
         new_accuracy = accuracy_score(y_test2, new_pred)
-        self._report_progress(f"New model accuracy on new data: {new_accuracy:.4f}", 90)
+        print(f"New model accuracy on new data: {new_accuracy:.4f}")
         
         # If new result better, replace old model
         if new_accuracy > old_accuracy:
-            self._report_progress("Saving updated model...", 95)
             joblib.dump(self.model, self.model_path)
-            self._report_progress("Model updated!", 100)
+            print("Model updated!")
             self._log_maintenance(old_accuracy, new_accuracy, True)
             return True
         else:
             # Reload old model
-            self._report_progress("Old model retained (better performance)", 95)
             self.model = joblib.load(self.model_path)
+            print("Old model retained (better performance)")
             self._log_maintenance(old_accuracy, new_accuracy, False)
             return False
     
