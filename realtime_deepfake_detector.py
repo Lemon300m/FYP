@@ -34,6 +34,8 @@ class ScreenDeepfakeDetector:
         self.last_detection_time = 0
         self.sct = mss.mss()
         self.selected_monitor = 0  # 0 = all monitors, 1+ = specific monitor
+        self.no_face_count = 0  # Track consecutive intervals without face detection
+        self.max_no_face_intervals = 5  # Reset display after 5 intervals without faces
         
         # Training variables
         self.real_dataset_path = ""
@@ -76,7 +78,7 @@ class ScreenDeepfakeDetector:
                                        command=self.start_scanning, style='Accent.TButton')
         self.start_button.pack(side=tk.LEFT, padx=5)
         
-        self.stop_button = ttk.Button(screen_controls, text="⏹ Stop Scanning", 
+        self.stop_button = ttk.Button(screen_controls, text="⏸ Stop Scanning", 
                                       command=self.stop_scanning, state='disabled')
         self.stop_button.pack(side=tk.LEFT, padx=5)
         
@@ -311,6 +313,7 @@ class ScreenDeepfakeDetector:
         self.result_label.config(text="Scanning Stopped", foreground='gray')
         self.confidence_label.config(text="")
         self.region_var.set("Not capturing")
+        self.no_face_count = 0  # Reset counter
         self.log("Screen scanning stopped")
         self.status_var.set("Ready")
         
@@ -354,9 +357,17 @@ class ScreenDeepfakeDetector:
         
         # Process faces for deepfake detection
         current_time = datetime.now().timestamp()
-        if current_time - self.last_detection_time >= self.interval_var.get() and len(faces) > 0:
+        if current_time - self.last_detection_time >= self.interval_var.get():
             self.last_detection_time = current_time
-            threading.Thread(target=self.detect_deepfake, args=(faces,), daemon=True).start()
+            
+            if len(faces) > 0:
+                self.no_face_count = 0  # Reset counter when faces are detected
+                threading.Thread(target=self.detect_deepfake, args=(faces,), daemon=True).start()
+            else:
+                # Increment counter when no faces detected
+                self.no_face_count += 1
+                if self.no_face_count >= self.max_no_face_intervals:
+                    self.reset_detection_display()
         
         # Draw rectangles around faces
         for (x, y, w, h) in faces:
@@ -433,6 +444,12 @@ class ScreenDeepfakeDetector:
         else:  # Real
             self.result_label.config(text="✓ REAL", foreground='green')
             self.confidence_label.config(text=f"Confidence: {result['confidence']:.1f}%")
+    
+    def reset_detection_display(self):
+        """Reset display to 'No Detection' after consecutive intervals without faces"""
+        self.result_label.config(text="No Detection", foreground='gray')
+        self.confidence_label.config(text="")
+        self.no_face_count = 0  # Reset counter after display update
             
     def update_statistics(self, result):
         threshold = self.threshold_var.get()
@@ -525,7 +542,7 @@ class ScreenDeepfakeDetector:
                 messagebox.showinfo("Success", f"Model trained successfully!\nAccuracy: {accuracy:.4f}")
                 
             except Exception as e:
-                self.log(f"❌ Training error: {str(e)}")
+                self.log(f"✗ Training error: {str(e)}")
                 self.status_var.set("Training failed")
                 messagebox.showerror("Error", f"Training failed: {str(e)}")
             finally:
