@@ -27,15 +27,19 @@ class ScreenDeepfakeDetector:
         self.model_path = "deepfake_model.pkl"
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
-        # Screen capture variables
+        # Configuration file
+        self.config_path = "config.json"
+        self.config = self.load_config()
+        
+        # Screen capture variables (loaded from config)
         self.is_scanning = False
         self.current_frame = None
-        self.detection_interval = 1.0  # Check every 1 second
+        self.detection_interval = self.config['screen_capture'].get('detection_interval', 1.0)
         self.last_detection_time = 0
         self.sct = mss.mss()
-        self.selected_monitor = 0  # 0 = all monitors, 1+ = specific monitor
-        self.no_face_count = 0  # Track consecutive intervals without face detection
-        self.max_no_face_intervals = 5  # Reset display after 5 intervals without faces
+        self.selected_monitor = self.config['screen_capture'].get('selected_monitor', 0)
+        self.no_face_count = self.config['screen_capture'].get('no_face_count', 0)
+        self.max_no_face_intervals = self.config['screen_capture'].get('max_no_face_intervals', 5)
         
         # Training variables
         self.real_dataset_path = ""
@@ -47,6 +51,53 @@ class ScreenDeepfakeDetector:
         
         self.setup_ui()
         self.load_model_if_exists()
+        
+    def load_config(self):
+        """Load configuration from JSON file, with defaults if file doesn't exist"""
+        default_config = {
+            "screen_capture": {
+                "detection_interval": 1.0,
+                "selected_monitor": 0,
+                "no_face_count": 0,
+                "max_no_face_intervals": 5
+            }
+        }
+        
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, 'r') as f:
+                    loaded_config = json.load(f)
+                    # Merge with defaults to ensure all keys exist
+                    config = default_config.copy()
+                    config['screen_capture'].update(loaded_config.get('screen_capture', {}))
+                    self.safe_log(f"Configuration loaded from {self.config_path}")
+                    return config
+            except Exception as e:
+                self.safe_log(f"Error loading config: {str(e)}. Using defaults.")
+                return default_config
+        else:
+            self.safe_log(f"No config file found. Creating {self.config_path} with defaults.")
+            self.save_config(default_config)
+            return default_config
+    
+    def save_config(self, config=None):
+        """Save configuration to JSON file"""
+        if config is None:
+            config = {
+                "screen_capture": {
+                    "detection_interval": self.detection_interval,
+                    "selected_monitor": self.selected_monitor,
+                    "no_face_count": self.no_face_count,
+                    "max_no_face_intervals": self.max_no_face_intervals
+                }
+            }
+        
+        try:
+            with open(self.config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            self.safe_log(f"Configuration saved to {self.config_path}")
+        except Exception as e:
+            self.safe_log(f"Error saving config: {str(e)}")
         
     def setup_ui(self):
         # Main container with two columns
@@ -155,13 +206,13 @@ class ScreenDeepfakeDetector:
         ttk.Label(settings_frame, text="Detection Interval (seconds):").pack(anchor=tk.W)
         interval_frame = ttk.Frame(settings_frame)
         interval_frame.pack(fill=tk.X, pady=5)
-        self.interval_var = tk.DoubleVar(value=1.0)
-        interval_scale = ttk.Scale(interval_frame, from_=0.5, to=5.0, 
+        self.interval_var = tk.DoubleVar(value=self.detection_interval)
+        interval_scale = ttk.Scale(interval_frame, from_=0.5, to=10.0, 
                                   variable=self.interval_var, orient=tk.HORIZONTAL)
         interval_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.interval_label = ttk.Label(interval_frame, text="1.0s", width=5)
+        self.interval_label = ttk.Label(interval_frame, text=f"{self.detection_interval:.1f}s", width=5)
         self.interval_label.pack(side=tk.LEFT, padx=(5, 0))
-        self.interval_var.trace('w', lambda *args: self.interval_label.config(text=f"{self.interval_var.get():.1f}s"))
+        self.interval_var.trace('w', lambda *args: self.on_interval_change())
         
         ttk.Label(settings_frame, text="Confidence Threshold (%):").pack(anchor=tk.W)
         threshold_frame = ttk.Frame(settings_frame)
@@ -232,11 +283,27 @@ class ScreenDeepfakeDetector:
         else:
             self.selected_monitor = int(selection.split()[-1])
         self.log(f"Monitor changed to: {selection}")
+        self.save_config()  # Save the new setting
+        
+    def on_interval_change(self):
+        """Update interval label and save to config"""
+        self.detection_interval = self.interval_var.get()
+        self.interval_label.config(text=f"{self.detection_interval:.1f}s")
+        self.save_config()  # Save the new setting
         
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.insert(tk.END, f"[{timestamp}] {message}\n")
-        self.log_text.see(tk.END)
+        log_msg = f"[{timestamp}] {message}"
+        # Print to console
+        print(log_msg)
+        # Add to UI if available
+        if hasattr(self, 'log_text'):
+            self.log_text.insert(tk.END, log_msg + "\n")
+            self.log_text.see(tk.END)
+    
+    def safe_log(self, message):
+        """Safe logging for early initialization stages"""
+        self.log(message)
         
     def load_model_if_exists(self):
         if os.path.exists(self.model_path):
