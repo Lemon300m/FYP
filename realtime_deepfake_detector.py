@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, Toplevel
 from tkinter.scrolledtext import ScrolledText
 import cv2
 from PIL import Image, ImageTk, ImageGrab
@@ -14,6 +14,249 @@ from datetime import datetime
 import json
 import mss
 import mss.tools
+
+class SettingsWindow:
+    """Separate window for settings"""
+    def __init__(self, parent, app):
+        self.window = Toplevel(parent)
+        self.window.title("Settings")
+        self.window.geometry("600x700")
+        self.window.resizable(False, False)
+        self.app = app
+        
+        # Make window modal
+        self.window.transient(parent)
+        self.window.grab_set()
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Create main container
+        main_container = ttk.Frame(self.window)
+        main_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Create canvas and scrollbar
+        canvas = tk.Canvas(main_container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Add mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Main frame with padding
+        main_frame = ttk.Frame(scrollable_frame, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text="⚙️ Settings & Configuration", 
+                                font=('Arial', 16, 'bold'))
+        title_label.pack(pady=(0, 20))
+        
+        # Detection Settings Section
+        detection_section = ttk.LabelFrame(main_frame, text="Detection Settings", padding="15")
+        detection_section.pack(fill=tk.X, pady=(0, 15))
+        
+        # Detection Interval
+        ttk.Label(detection_section, text="Detection Interval:", 
+                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(detection_section, text="Time between detections (seconds)", 
+                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
+        
+        interval_slider_frame = ttk.Frame(detection_section)
+        interval_slider_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        self.interval_var = tk.DoubleVar(value=self.app.detection_interval)
+        interval_scale = ttk.Scale(interval_slider_frame, from_=0.5, to=10.0, 
+                                  variable=self.interval_var, orient=tk.HORIZONTAL)
+        interval_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        self.interval_label = ttk.Label(interval_slider_frame, text=f"{self.app.detection_interval:.1f}s", width=6)
+        self.interval_label.pack(side=tk.LEFT, padx=(10, 0))
+        
+        self.interval_var.trace('w', lambda *args: self.interval_label.config(
+            text=f"{self.interval_var.get():.1f}s"))
+        
+        ttk.Label(detection_section, text="⚠ Lower values = more frequent checks, higher CPU usage", 
+                 font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
+        
+        # Separator
+        ttk.Separator(detection_section, orient='horizontal').pack(fill=tk.X, pady=15)
+        
+        # Confidence Threshold
+        ttk.Label(detection_section, text="Confidence Threshold:", 
+                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(detection_section, text="Minimum confidence for detection (%)", 
+                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
+        
+        threshold_slider_frame = ttk.Frame(detection_section)
+        threshold_slider_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        self.threshold_var = tk.DoubleVar(value=self.app.threshold_var.get())
+        threshold_scale = ttk.Scale(threshold_slider_frame, from_=50.0, to=95.0, 
+                                   variable=self.threshold_var, orient=tk.HORIZONTAL)
+        threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        self.threshold_label = ttk.Label(threshold_slider_frame, text=f"{self.app.threshold_var.get():.0f}%", width=6)
+        self.threshold_label.pack(side=tk.LEFT, padx=(10, 0))
+        
+        self.threshold_var.trace('w', lambda *args: self.threshold_label.config(
+            text=f"{self.threshold_var.get():.0f}%"))
+        
+        ttk.Label(detection_section, text="⚠ Higher values = fewer false positives, may miss some detections", 
+                 font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
+        
+        # Separator
+        ttk.Separator(detection_section, orient='horizontal').pack(fill=tk.X, pady=15)
+        
+        # Max No Face Intervals
+        ttk.Label(detection_section, text="Display Reset:", 
+                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(detection_section, text="Clear detection after N intervals with no face", 
+                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
+        
+        face_slider_frame = ttk.Frame(detection_section)
+        face_slider_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        self.max_no_face_var = tk.IntVar(value=self.app.max_no_face_intervals)
+        face_scale = ttk.Scale(face_slider_frame, from_=1, to=20, 
+                              variable=self.max_no_face_var, orient=tk.HORIZONTAL)
+        face_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        self.face_label = ttk.Label(face_slider_frame, text=f"{self.app.max_no_face_intervals}", width=6)
+        self.face_label.pack(side=tk.LEFT, padx=(10, 0))
+        
+        self.max_no_face_var.trace('w', lambda *args: self.face_label.config(
+            text=f"{self.max_no_face_var.get()}"))
+        
+        ttk.Label(detection_section, text="ℹ️ How long to keep showing detection result after face disappears", 
+                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W)
+        
+        # Model Training Section
+        train_section = ttk.LabelFrame(main_frame, text="Model Training", padding="15")
+        train_section.pack(fill=tk.X, pady=(0, 15))
+        
+        ttk.Label(train_section, text="Train a new deepfake detection model", 
+                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 15))
+        
+        # Real Dataset
+        ttk.Label(train_section, text="Real Images Dataset:", 
+                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        
+        real_frame = ttk.Frame(train_section)
+        real_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        self.real_path_var = tk.StringVar(value=self.app.real_path_var.get())
+        real_entry = ttk.Entry(real_frame, textvariable=self.real_path_var)
+        real_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        ttk.Button(real_frame, text="📁 Browse", 
+                  command=lambda: self.browse_dataset("real")).pack(side=tk.LEFT)
+        
+        # Fake Dataset
+        ttk.Label(train_section, text="Fake Images Dataset:", 
+                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        
+        fake_frame = ttk.Frame(train_section)
+        fake_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        self.fake_path_var = tk.StringVar(value=self.app.fake_path_var.get())
+        fake_entry = ttk.Entry(fake_frame, textvariable=self.fake_path_var)
+        fake_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        ttk.Button(fake_frame, text="📁 Browse", 
+                  command=lambda: self.browse_dataset("fake")).pack(side=tk.LEFT)
+        
+        # Train button and progress
+        ttk.Button(train_section, text="🎯 Train New Model", 
+                  command=self.train_model).pack(fill=tk.X, pady=(0, 10))
+        
+        self.train_progress_var = tk.DoubleVar()
+        self.train_progress = ttk.Progressbar(train_section, variable=self.train_progress_var, 
+                                             maximum=100, mode='determinate')
+        self.train_progress.pack(fill=tk.X)
+        
+        ttk.Label(train_section, text="ℹ️ Training may take several minutes depending on dataset size", 
+                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(5, 0))
+        
+        # Bottom buttons frame (not scrollable)
+        button_container = ttk.Frame(self.window)
+        button_container.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=15)
+        
+        ttk.Button(button_container, text="Reset to Defaults", 
+                  command=self.reset_defaults).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(button_container, text="Cancel", 
+                  command=self.cancel).pack(side=tk.RIGHT, padx=(10, 0))
+        
+        ttk.Button(button_container, text="Apply & Close", 
+                  command=self.apply_settings, style='Accent.TButton').pack(side=tk.RIGHT)
+        
+    def browse_dataset(self, dataset_type):
+        folder = filedialog.askdirectory(title=f"Select {dataset_type.capitalize()} Dataset Folder")
+        if folder:
+            if dataset_type == "real":
+                self.real_path_var.set(folder)
+            else:
+                self.fake_path_var.set(folder)
+    
+    def train_model(self):
+        real_path = self.real_path_var.get()
+        fake_path = self.fake_path_var.get()
+        
+        if not real_path or not fake_path:
+            messagebox.showerror("Error", "Please specify both dataset paths")
+            return
+            
+        if not os.path.exists(real_path) or not os.path.exists(fake_path):
+            messagebox.showerror("Error", "Dataset paths do not exist")
+            return
+        
+        # Update app's path variables
+        self.app.real_path_var.set(real_path)
+        self.app.fake_path_var.set(fake_path)
+        
+        # Call app's train_model with progress callback
+        self.app.train_model(progress_callback=self.train_progress_var)
+        
+    def reset_defaults(self):
+        self.interval_var.set(3.0)
+        self.threshold_var.set(60.0)
+        self.max_no_face_var.set(5)
+        
+    def apply_settings(self):
+        # Apply settings to main app
+        self.app.detection_interval = self.interval_var.get()
+        self.app.interval_var.set(self.interval_var.get())
+        self.app.threshold_var.set(self.threshold_var.get())
+        self.app.max_no_face_intervals = self.max_no_face_var.get()
+        
+        # Update app's dataset paths
+        self.app.real_path_var.set(self.real_path_var.get())
+        self.app.fake_path_var.set(self.fake_path_var.get())
+        
+        self.app.log(f"Settings updated: Interval={self.interval_var.get():.1f}s, "
+                    f"Threshold={self.threshold_var.get():.0f}%, "
+                    f"Max No Face={self.max_no_face_var.get()}")
+        
+        self.window.destroy()
+        
+    def cancel(self):
+        self.window.destroy()
+
 
 class ScreenDeepfakeDetector:
     def __init__(self, root):
@@ -44,10 +287,16 @@ class ScreenDeepfakeDetector:
         # Training variables
         self.real_dataset_path = ""
         self.fake_dataset_path = ""
+        self.real_path_var = tk.StringVar()
+        self.fake_path_var = tk.StringVar()
         
         # Statistics
         self.total_scans = 0
         self.deepfakes_detected = 0
+        
+        # Initialize threshold var (needed for settings window)
+        self.threshold_var = tk.DoubleVar(value=60.0)
+        self.interval_var = tk.DoubleVar(value=self.detection_interval)
         
         self.setup_ui()
         self.load_model_if_exists()
@@ -73,13 +322,13 @@ class ScreenDeepfakeDetector:
                     # Merge with defaults to ensure all keys exist
                     config = default_config.copy()
                     config['screen_capture'].update(loaded_config.get('screen_capture', {}))
-                    self.safe_log(f"Configuration loaded from {self.config_path}")
+                    print(f"Configuration loaded from {self.config_path}")
                     return config
             except Exception as e:
-                self.safe_log(f"Error loading config: {str(e)}. Using defaults.")
+                print(f"Error loading config: {str(e)}. Using defaults.")
                 return default_config
         else:
-            self.safe_log(f"No config file found. Will create {self.config_path} on exit.")
+            print(f"No config file found. Will create {self.config_path} on exit.")
             return default_config
     
     def save_config(self):
@@ -108,6 +357,10 @@ class ScreenDeepfakeDetector:
             messagebox.showinfo("Success", "Configuration saved successfully!")
         else:
             messagebox.showerror("Error", "Failed to save configuration")
+    
+    def open_settings(self):
+        """Open settings window"""
+        SettingsWindow(self.root, self)
     
     def on_closing(self):
         """Handle window close event - save config before exiting"""
@@ -144,7 +397,7 @@ class ScreenDeepfakeDetector:
         screen_controls = ttk.Frame(left_frame)
         screen_controls.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        self.start_button = ttk.Button(screen_controls, text="▶ Start Screen Scanning", 
+        self.start_button = ttk.Button(screen_controls, text="▶ Start Scanning", 
                                        command=self.start_scanning, style='Accent.TButton')
         self.start_button.pack(side=tk.LEFT, padx=5)
         
@@ -160,13 +413,16 @@ class ScreenDeepfakeDetector:
         monitor_combo.pack(side=tk.LEFT)
         monitor_combo.bind('<<ComboboxSelected>>', self.on_monitor_change)
         
+        ttk.Button(screen_controls, text="⚙️ Settings", 
+                  command=self.open_settings).pack(side=tk.RIGHT, padx=5)
+        
         # Screen feed display
         video_frame = ttk.LabelFrame(left_frame, text="Screen Capture Feed", padding="5")
         video_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         video_frame.rowconfigure(0, weight=1)
         video_frame.columnconfigure(0, weight=1)
         
-        self.video_label = ttk.Label(video_frame, text="Screen capture will appear here\n\nClick 'Start Screen Scanning' to begin", 
+        self.video_label = ttk.Label(video_frame, text="Screen capture will appear here\n\nClick 'Start Scanning' to begin", 
                                      background='black', foreground='white', 
                                      font=('Arial', 14))
         self.video_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -195,7 +451,7 @@ class ScreenDeepfakeDetector:
         # RIGHT COLUMN - Controls and Logs
         right_frame = ttk.Frame(main_frame)
         right_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
-        right_frame.rowconfigure(4, weight=1)
+        right_frame.rowconfigure(2, weight=1)
         right_frame.columnconfigure(0, weight=1)
         
         # Model status
@@ -218,35 +474,9 @@ class ScreenDeepfakeDetector:
         ttk.Label(status_frame, textvariable=self.region_var, 
                  font=('Arial', 8)).grid(row=2, column=1, sticky=tk.W, padx=(5, 0))
         
-        # Settings
-        settings_frame = ttk.LabelFrame(right_frame, text="Detection Settings", padding="10")
-        settings_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        
-        ttk.Label(settings_frame, text="Detection Interval (seconds):").pack(anchor=tk.W)
-        interval_frame = ttk.Frame(settings_frame)
-        interval_frame.pack(fill=tk.X, pady=5)
-        self.interval_var = tk.DoubleVar(value=self.detection_interval)
-        interval_scale = ttk.Scale(interval_frame, from_=0.5, to=10.0, 
-                                  variable=self.interval_var, orient=tk.HORIZONTAL)
-        interval_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.interval_label = ttk.Label(interval_frame, text=f"{self.detection_interval:.1f}s", width=5)
-        self.interval_label.pack(side=tk.LEFT, padx=(5, 0))
-        self.interval_var.trace('w', lambda *args: self.on_interval_change())
-        
-        ttk.Label(settings_frame, text="Confidence Threshold (%):").pack(anchor=tk.W)
-        threshold_frame = ttk.Frame(settings_frame)
-        threshold_frame.pack(fill=tk.X, pady=5)
-        self.threshold_var = tk.DoubleVar(value=60.0)
-        threshold_scale = ttk.Scale(threshold_frame, from_=50.0, to=95.0, 
-                                   variable=self.threshold_var, orient=tk.HORIZONTAL)
-        threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.threshold_label = ttk.Label(threshold_frame, text="60%", width=5)
-        self.threshold_label.pack(side=tk.LEFT, padx=(5, 0))
-        self.threshold_var.trace('w', lambda *args: self.threshold_label.config(text=f"{self.threshold_var.get():.0f}%"))
-        
         # Quick actions
         actions_frame = ttk.LabelFrame(right_frame, text="Quick Actions", padding="10")
-        actions_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        actions_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
         ttk.Button(actions_frame, text="🔄 Reset Statistics", 
                   command=self.reset_statistics).pack(fill=tk.X, pady=2)
@@ -255,36 +485,9 @@ class ScreenDeepfakeDetector:
         ttk.Button(actions_frame, text="💾 Save Config Now", 
                   command=self.manual_save_config).pack(fill=tk.X, pady=2)
         
-        # Training section
-        train_frame = ttk.LabelFrame(right_frame, text="Model Training", padding="10")
-        train_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        train_frame.columnconfigure(1, weight=1)
-        
-        ttk.Label(train_frame, text="Real Dataset:").grid(row=0, column=0, sticky=tk.W)
-        self.real_path_var = tk.StringVar()
-        ttk.Entry(train_frame, textvariable=self.real_path_var, width=20).grid(row=0, column=1, 
-                                                                                sticky=(tk.W, tk.E), padx=5)
-        ttk.Button(train_frame, text="📁", command=lambda: self.browse_dataset("real"), 
-                  width=3).grid(row=0, column=2)
-        
-        ttk.Label(train_frame, text="Fake Dataset:").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
-        self.fake_path_var = tk.StringVar()
-        ttk.Entry(train_frame, textvariable=self.fake_path_var, width=20).grid(row=1, column=1, 
-                                                                                sticky=(tk.W, tk.E), padx=5)
-        ttk.Button(train_frame, text="📁", command=lambda: self.browse_dataset("fake"), 
-                  width=3).grid(row=1, column=2)
-        
-        ttk.Button(train_frame, text="🎯 Train New Model", 
-                  command=self.train_model).grid(row=2, column=0, columnspan=3, pady=(10, 0))
-        
-        self.train_progress_var = tk.DoubleVar()
-        self.train_progress = ttk.Progressbar(train_frame, variable=self.train_progress_var, 
-                                             maximum=100, mode='determinate')
-        self.train_progress.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 0))
-        
-        # Log output
+        # Log output (removed training section)
         log_frame = ttk.LabelFrame(right_frame, text="Activity Log", padding="5")
-        log_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        log_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
         
@@ -305,11 +508,6 @@ class ScreenDeepfakeDetector:
             self.selected_monitor = int(selection.split()[-1])
         self.log(f"Monitor changed to: {selection}")
         
-    def on_interval_change(self):
-        """Update interval label (config saved on exit)"""
-        self.detection_interval = self.interval_var.get()
-        self.interval_label.config(text=f"{self.detection_interval:.1f}s")
-        
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_msg = f"[{timestamp}] {message}"
@@ -319,10 +517,6 @@ class ScreenDeepfakeDetector:
         if hasattr(self, 'log_text'):
             self.log_text.insert(tk.END, log_msg + "\n")
             self.log_text.see(tk.END)
-    
-    def safe_log(self, message):
-        """Safe logging for early initialization stages"""
-        print(message)
         
     def load_model_if_exists(self):
         if os.path.exists(self.model_path):
@@ -330,7 +524,7 @@ class ScreenDeepfakeDetector:
                 self.model = joblib.load(self.model_path)
                 self.model_status_var.set("Model loaded ✓")
                 self.log("Model loaded successfully")
-                self.status_var.set("Ready - Click 'Start Screen Scanning'")
+                self.status_var.set("Ready - Click 'Start Scanning'")
             except Exception as e:
                 self.log(f"Error loading model: {str(e)}")
                 self.model_status_var.set("Model load failed ✗")
@@ -566,7 +760,7 @@ class ScreenDeepfakeDetector:
         self.log(f"Screenshot saved: {filename}")
         messagebox.showinfo("Success", f"Screenshot saved as {filename}")
         
-    def train_model(self):
+    def train_model(self, progress_callback=None):
         real_path = self.real_path_var.get()
         fake_path = self.fake_path_var.get()
         
@@ -581,13 +775,16 @@ class ScreenDeepfakeDetector:
         self.log("Starting model training...")
         self.status_var.set("Training in progress...")
         
+        # Use provided progress callback or default
+        progress_var = progress_callback if progress_callback else tk.DoubleVar()
+        
         def train_thread():
             try:
                 # Load datasets
                 self.log("Loading real images...")
-                X_real, y_real = self.load_dataset(real_path, 0)
+                X_real, y_real = self.load_dataset(real_path, 0, progress_var)
                 self.log("Loading fake images...")
-                X_fake, y_fake = self.load_dataset(fake_path, 1)
+                X_fake, y_fake = self.load_dataset(fake_path, 1, progress_var)
                 
                 if len(X_real) == 0 or len(X_fake) == 0:
                     self.log("Error: No data loaded from datasets")
@@ -606,17 +803,17 @@ class ScreenDeepfakeDetector:
                 
                 # Train
                 self.log("Training Random Forest model...")
-                self.train_progress_var.set(60)
+                progress_var.set(60)
                 model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
                 model.fit(X_train, y_train)
                 
                 # Test
-                self.train_progress_var.set(90)
+                progress_var.set(90)
                 y_pred = model.predict(X_test)
                 accuracy = accuracy_score(y_test, y_pred)
                 
                 self.log(f"Model accuracy: {accuracy:.4f}")
-                self.train_progress_var.set(100)
+                progress_var.set(100)
                 
                 # Save
                 joblib.dump(model, self.model_path)
@@ -624,7 +821,7 @@ class ScreenDeepfakeDetector:
                 self.model_status_var.set("Model loaded ✓")
                 
                 self.log("✓ Training completed successfully!")
-                self.status_var.set("Ready - Click 'Start Screen Scanning'")
+                self.status_var.set("Ready - Click 'Start Scanning'")
                 messagebox.showinfo("Success", f"Model trained successfully!\nAccuracy: {accuracy:.4f}")
                 
             except Exception as e:
@@ -632,11 +829,11 @@ class ScreenDeepfakeDetector:
                 self.status_var.set("Training failed")
                 messagebox.showerror("Error", f"Training failed: {str(e)}")
             finally:
-                self.train_progress_var.set(0)
+                progress_var.set(0)
                 
         threading.Thread(target=train_thread, daemon=True).start()
         
-    def load_dataset(self, path, label):
+    def load_dataset(self, path, label, progress_var=None):
         """Load images from dataset path"""
         X, y = [], []
         
@@ -657,7 +854,8 @@ class ScreenDeepfakeDetector:
                     
             if idx % 10 == 0:
                 progress = (idx + 1) / total * 100
-                self.train_progress_var.set(progress * 0.5)  # First 50% for loading
+                if progress_var:
+                    progress_var.set(progress * 0.5)  # First 50% for loading
                 self.log(f"Processing: {idx + 1}/{total}")
                 
         self.log(f"Loaded {len(X)} valid samples from {os.path.basename(path)}")
