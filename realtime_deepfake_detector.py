@@ -81,14 +81,12 @@ class SettingsWindow:
         
         self.interval_var = tk.DoubleVar(value=self.app.detection_interval)
         interval_scale = ttk.Scale(interval_slider_frame, from_=0.5, to=10.0, 
-                                  variable=self.interval_var, orient=tk.HORIZONTAL)
+                                  variable=self.interval_var, orient=tk.HORIZONTAL,
+                                  command=lambda v: self.snap_slider(self.interval_var, self.interval_label, 0.5, "s"))
         interval_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         self.interval_label = ttk.Label(interval_slider_frame, text=f"{self.app.detection_interval:.1f}s", width=6)
         self.interval_label.pack(side=tk.LEFT, padx=(10, 0))
-        
-        self.interval_var.trace('w', lambda *args: self.interval_label.config(
-            text=f"{self.interval_var.get():.1f}s"))
         
         ttk.Label(detection_section, text="⚠ Lower values = more frequent checks, higher CPU usage", 
                  font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
@@ -107,14 +105,12 @@ class SettingsWindow:
         
         self.threshold_var = tk.DoubleVar(value=self.app.threshold_var.get())
         threshold_scale = ttk.Scale(threshold_slider_frame, from_=50.0, to=95.0, 
-                                   variable=self.threshold_var, orient=tk.HORIZONTAL)
+                                   variable=self.threshold_var, orient=tk.HORIZONTAL,
+                                   command=lambda v: self.snap_slider(self.threshold_var, self.threshold_label, 1, "%"))
         threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        self.threshold_label = ttk.Label(threshold_slider_frame, text=f"{self.app.threshold_var.get():.0f}%", width=6)
+        self.threshold_label = ttk.Label(threshold_slider_frame, text=f"{int(self.app.threshold_var.get())}%", width=6)
         self.threshold_label.pack(side=tk.LEFT, padx=(10, 0))
-        
-        self.threshold_var.trace('w', lambda *args: self.threshold_label.config(
-            text=f"{self.threshold_var.get():.0f}%"))
         
         ttk.Label(detection_section, text="⚠ Higher values = fewer false positives, may miss some detections", 
                  font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
@@ -133,14 +129,12 @@ class SettingsWindow:
         
         self.max_no_face_var = tk.IntVar(value=self.app.max_no_face_intervals)
         face_scale = ttk.Scale(face_slider_frame, from_=1, to=20, 
-                              variable=self.max_no_face_var, orient=tk.HORIZONTAL)
+                              variable=self.max_no_face_var, orient=tk.HORIZONTAL,
+                              command=lambda v: self.snap_slider(self.max_no_face_var, self.face_label, 1, ""))
         face_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         self.face_label = ttk.Label(face_slider_frame, text=f"{self.app.max_no_face_intervals}", width=6)
         self.face_label.pack(side=tk.LEFT, padx=(10, 0))
-        
-        self.max_no_face_var.trace('w', lambda *args: self.face_label.config(
-            text=f"{self.max_no_face_var.get()}"))
         
         ttk.Label(detection_section, text="ℹ️ How long to keep showing detection result after face disappears", 
                  font=('Arial', 8), foreground='blue').pack(anchor=tk.W)
@@ -213,6 +207,25 @@ class SettingsWindow:
             else:
                 self.fake_path_var.set(folder)
     
+    def snap_slider(self, var, label, step, suffix):
+        """Universal slider snapping function
+        
+        Args:
+            var: The tkinter variable to snap
+            label: The label widget to update
+            step: The step size (0.5 for half steps, 1 for integers, etc.)
+            suffix: Text to append to the value (e.g., "s", "%", "")
+        """
+        value = var.get()
+        snapped = round(value / step) * step
+        var.set(snapped)
+        
+        # Format based on step size
+        if step >= 1:
+            label.config(text=f"{int(snapped)}{suffix}")
+        else:
+            label.config(text=f"{snapped:.1f}{suffix}")
+    
     def train_model(self):
         real_path = self.real_path_var.get()
         fake_path = self.fake_path_var.get()
@@ -233,9 +246,11 @@ class SettingsWindow:
         self.app.train_model(progress_callback=self.train_progress_var)
         
     def reset_defaults(self):
-        self.interval_var.set(3.0)
-        self.threshold_var.set(60.0)
-        self.max_no_face_var.set(5)
+        """Reset all settings to defaults from default.json"""
+        defaults = self.app.load_default_config()
+        self.interval_var.set(defaults['screen_capture']['detection_interval'])
+        self.threshold_var.set(defaults['screen_capture']['confidence_threshold'])
+        self.max_no_face_var.set(defaults['screen_capture']['max_no_face_intervals'])
         
     def apply_settings(self):
         # Apply settings to main app
@@ -251,6 +266,9 @@ class SettingsWindow:
         self.app.log(f"Settings updated: Interval={self.interval_var.get():.1f}s, "
                     f"Threshold={self.threshold_var.get():.0f}%, "
                     f"Max No Face={self.max_no_face_var.get()}")
+        
+        # Save config when applying settings
+        self.app.save_config()
         
         self.window.destroy()
         
@@ -272,6 +290,7 @@ class ScreenDeepfakeDetector:
         
         # Configuration file
         self.config_path = "config.json"
+        self.default_config_path = "default.json"
         self.config = self.load_config()
         
         # Screen capture variables (loaded from config)
@@ -294,8 +313,8 @@ class ScreenDeepfakeDetector:
         self.total_scans = 0
         self.deepfakes_detected = 0
         
-        # Initialize threshold var (needed for settings window)
-        self.threshold_var = tk.DoubleVar(value=60.0)
+        # Initialize threshold var (needed for settings window) - load from config
+        self.threshold_var = tk.DoubleVar(value=self.config['screen_capture'].get('confidence_threshold', 60.0))
         self.interval_var = tk.DoubleVar(value=self.detection_interval)
         
         self.setup_ui()
@@ -304,16 +323,48 @@ class ScreenDeepfakeDetector:
         # Register cleanup handler for when window is closed
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-    def load_config(self):
-        """Load configuration from JSON file, with defaults if file doesn't exist"""
-        default_config = {
-            "screen_capture": {
-                "detection_interval": 1.0,
-                "selected_monitor": 0,
-                "no_face_count": 0,
-                "max_no_face_intervals": 5
+    def load_default_config(self):
+        """Load default configuration from default.json"""
+        if not os.path.exists(self.default_config_path):
+            print(f"ERROR: {self.default_config_path} not found! Creating it...")
+            default_config = {
+                "screen_capture": {
+                    "detection_interval": 1.0,
+                    "selected_monitor": 0,
+                    "no_face_count": 0,
+                    "max_no_face_intervals": 5,
+                    "confidence_threshold": 60.0
+                }
             }
-        }
+            try:
+                with open(self.default_config_path, 'w') as f:
+                    json.dump(default_config, f, indent=2)
+                print(f"Created {self.default_config_path}")
+            except Exception as e:
+                print(f"Could not create default config: {str(e)}")
+            return default_config
+        
+        try:
+            with open(self.default_config_path, 'r') as f:
+                default_config = json.load(f)
+                print(f"Default configuration loaded from {self.default_config_path}")
+                return default_config
+        except Exception as e:
+            print(f"Error loading default config: {str(e)}")
+            # Fallback hardcoded defaults if default.json is corrupted
+            return {
+                "screen_capture": {
+                    "detection_interval": 1.0,
+                    "selected_monitor": 0,
+                    "no_face_count": 0,
+                    "max_no_face_intervals": 5,
+                    "confidence_threshold": 60.0
+                }
+            }
+    
+    def load_config(self):
+        """Load configuration from config.json, fall back to default.json if not found"""
+        default_config = self.load_default_config()
         
         if os.path.exists(self.config_path):
             try:
@@ -321,24 +372,26 @@ class ScreenDeepfakeDetector:
                     loaded_config = json.load(f)
                     # Merge with defaults to ensure all keys exist
                     config = default_config.copy()
-                    config['screen_capture'].update(loaded_config.get('screen_capture', {}))
-                    print(f"Configuration loaded from {self.config_path}")
+                    if 'screen_capture' in loaded_config:
+                        config['screen_capture'].update(loaded_config['screen_capture'])
+                    print(f"User configuration loaded from {self.config_path}")
                     return config
             except Exception as e:
                 print(f"Error loading config: {str(e)}. Using defaults.")
                 return default_config
         else:
-            print(f"No config file found. Will create {self.config_path} on exit.")
+            print(f"No user config found. Using defaults from {self.default_config_path}")
             return default_config
     
     def save_config(self):
-        """Save current configuration to JSON file"""
+        """Save current configuration to config.json"""
         config = {
             "screen_capture": {
                 "detection_interval": self.detection_interval,
                 "selected_monitor": self.selected_monitor,
                 "no_face_count": self.no_face_count,
-                "max_no_face_intervals": self.max_no_face_intervals
+                "max_no_face_intervals": self.max_no_face_intervals,
+                "confidence_threshold": self.threshold_var.get()
             }
         }
         
@@ -350,13 +403,6 @@ class ScreenDeepfakeDetector:
         except Exception as e:
             self.log(f"Error saving config: {str(e)}")
             return False
-    
-    def manual_save_config(self):
-        """Manually save configuration (triggered by user button)"""
-        if self.save_config():
-            messagebox.showinfo("Success", "Configuration saved successfully!")
-        else:
-            messagebox.showerror("Error", "Failed to save configuration")
     
     def open_settings(self):
         """Open settings window"""
@@ -482,8 +528,6 @@ class ScreenDeepfakeDetector:
                   command=self.reset_statistics).pack(fill=tk.X, pady=2)
         ttk.Button(actions_frame, text="💾 Save Screenshot", 
                   command=self.save_screenshot).pack(fill=tk.X, pady=2)
-        ttk.Button(actions_frame, text="💾 Save Config Now", 
-                  command=self.manual_save_config).pack(fill=tk.X, pady=2)
         
         # Log output (removed training section)
         log_frame = ttk.LabelFrame(right_frame, text="Activity Log", padding="5")

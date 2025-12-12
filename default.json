@@ -1,0 +1,9 @@
+{
+  "screen_capture": {
+    "detection_interval": 3.0,
+    "selected_monitor": 0,
+    "no_face_count": 0,
+    "max_no_face_intervals": 5,
+    "confidence_threshold": 60.0
+  }
+}
