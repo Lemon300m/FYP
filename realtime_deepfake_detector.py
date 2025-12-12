@@ -52,6 +52,9 @@ class ScreenDeepfakeDetector:
         self.setup_ui()
         self.load_model_if_exists()
         
+        # Register cleanup handler for when window is closed
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
     def load_config(self):
         """Load configuration from JSON file, with defaults if file doesn't exist"""
         default_config = {
@@ -76,28 +79,44 @@ class ScreenDeepfakeDetector:
                 self.safe_log(f"Error loading config: {str(e)}. Using defaults.")
                 return default_config
         else:
-            self.safe_log(f"No config file found. Creating {self.config_path} with defaults.")
-            self.save_config(default_config)
+            self.safe_log(f"No config file found. Will create {self.config_path} on exit.")
             return default_config
     
-    def save_config(self, config=None):
-        """Save configuration to JSON file"""
-        if config is None:
-            config = {
-                "screen_capture": {
-                    "detection_interval": self.detection_interval,
-                    "selected_monitor": self.selected_monitor,
-                    "no_face_count": self.no_face_count,
-                    "max_no_face_intervals": self.max_no_face_intervals
-                }
+    def save_config(self):
+        """Save current configuration to JSON file"""
+        config = {
+            "screen_capture": {
+                "detection_interval": self.detection_interval,
+                "selected_monitor": self.selected_monitor,
+                "no_face_count": self.no_face_count,
+                "max_no_face_intervals": self.max_no_face_intervals
             }
+        }
         
         try:
             with open(self.config_path, 'w') as f:
                 json.dump(config, f, indent=2)
-            self.safe_log(f"Configuration saved to {self.config_path}")
+            self.log(f"Configuration saved to {self.config_path}")
+            return True
         except Exception as e:
-            self.safe_log(f"Error saving config: {str(e)}")
+            self.log(f"Error saving config: {str(e)}")
+            return False
+    
+    def manual_save_config(self):
+        """Manually save configuration (triggered by user button)"""
+        if self.save_config():
+            messagebox.showinfo("Success", "Configuration saved successfully!")
+        else:
+            messagebox.showerror("Error", "Failed to save configuration")
+    
+    def on_closing(self):
+        """Handle window close event - save config before exiting"""
+        if self.is_scanning:
+            self.stop_scanning()
+        
+        self.log("Saving configuration before exit...")
+        self.save_config()
+        self.root.destroy()
         
     def setup_ui(self):
         # Main container with two columns
@@ -233,6 +252,8 @@ class ScreenDeepfakeDetector:
                   command=self.reset_statistics).pack(fill=tk.X, pady=2)
         ttk.Button(actions_frame, text="💾 Save Screenshot", 
                   command=self.save_screenshot).pack(fill=tk.X, pady=2)
+        ttk.Button(actions_frame, text="💾 Save Config Now", 
+                  command=self.manual_save_config).pack(fill=tk.X, pady=2)
         
         # Training section
         train_frame = ttk.LabelFrame(right_frame, text="Model Training", padding="10")
@@ -253,7 +274,7 @@ class ScreenDeepfakeDetector:
         ttk.Button(train_frame, text="📁", command=lambda: self.browse_dataset("fake"), 
                   width=3).grid(row=1, column=2)
         
-        ttk.Button(train_frame, text="🎓 Train New Model", 
+        ttk.Button(train_frame, text="🎯 Train New Model", 
                   command=self.train_model).grid(row=2, column=0, columnspan=3, pady=(10, 0))
         
         self.train_progress_var = tk.DoubleVar()
@@ -283,13 +304,11 @@ class ScreenDeepfakeDetector:
         else:
             self.selected_monitor = int(selection.split()[-1])
         self.log(f"Monitor changed to: {selection}")
-        self.save_config()  # Save the new setting
         
     def on_interval_change(self):
-        """Update interval label and save to config"""
+        """Update interval label (config saved on exit)"""
         self.detection_interval = self.interval_var.get()
         self.interval_label.config(text=f"{self.detection_interval:.1f}s")
-        self.save_config()  # Save the new setting
         
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -303,7 +322,7 @@ class ScreenDeepfakeDetector:
     
     def safe_log(self, message):
         """Safe logging for early initialization stages"""
-        self.log(message)
+        print(message)
         
     def load_model_if_exists(self):
         if os.path.exists(self.model_path):
