@@ -71,73 +71,29 @@ class SettingsWindow:
         detection_section.pack(fill=tk.X, pady=(0, 15))
         
         # Detection Interval
-        ttk.Label(detection_section, text="Detection Interval:", 
-                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Label(detection_section, text="Time between detections (seconds)", 
-                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
-        
-        interval_slider_frame = ttk.Frame(detection_section)
-        interval_slider_frame.pack(fill=tk.X, pady=(0, 15))
-        
         self.interval_var = tk.DoubleVar(value=self.app.detection_interval)
-        interval_scale = ttk.Scale(interval_slider_frame, from_=0.5, to=10.0, 
-                                  variable=self.interval_var, orient=tk.HORIZONTAL,
-                                  command=lambda v: self.snap_slider(self.interval_var, self.interval_label, 0.5, "s"))
-        interval_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.interval_label = self.create_slider_control(
+            detection_section, "Detection Interval:", "Time between detections (seconds)",
+            self.interval_var, 0.5, 10.0, 0.5, "s",
+            "⚠ Lower values = more frequent checks, higher CPU usage")
         
-        self.interval_label = ttk.Label(interval_slider_frame, text=f"{self.app.detection_interval:.1f}s", width=6)
-        self.interval_label.pack(side=tk.LEFT, padx=(10, 0))
-        
-        ttk.Label(detection_section, text="⚠ Lower values = more frequent checks, higher CPU usage", 
-                 font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
-        
-        # Separator
         ttk.Separator(detection_section, orient='horizontal').pack(fill=tk.X, pady=15)
         
         # Confidence Threshold
-        ttk.Label(detection_section, text="Confidence Threshold:", 
-                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Label(detection_section, text="Minimum confidence for detection (%)", 
-                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
-        
-        threshold_slider_frame = ttk.Frame(detection_section)
-        threshold_slider_frame.pack(fill=tk.X, pady=(0, 15))
-        
         self.threshold_var = tk.DoubleVar(value=self.app.threshold_var.get())
-        threshold_scale = ttk.Scale(threshold_slider_frame, from_=50.0, to=95.0, 
-                                   variable=self.threshold_var, orient=tk.HORIZONTAL,
-                                   command=lambda v: self.snap_slider(self.threshold_var, self.threshold_label, 1, "%"))
-        threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.threshold_label = self.create_slider_control(
+            detection_section, "Confidence Threshold:", "Minimum confidence for detection (%)",
+            self.threshold_var, 50.0, 95.0, 1, "%",
+            "⚠ Higher values = fewer false positives, may miss some detections")
         
-        self.threshold_label = ttk.Label(threshold_slider_frame, text=f"{int(self.app.threshold_var.get())}%", width=6)
-        self.threshold_label.pack(side=tk.LEFT, padx=(10, 0))
-        
-        ttk.Label(detection_section, text="⚠ Higher values = fewer false positives, may miss some detections", 
-                 font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
-        
-        # Separator
         ttk.Separator(detection_section, orient='horizontal').pack(fill=tk.X, pady=15)
         
         # Max No Face Intervals
-        ttk.Label(detection_section, text="Display Reset:", 
-                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Label(detection_section, text="Clear detection after N intervals with no face", 
-                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
-        
-        face_slider_frame = ttk.Frame(detection_section)
-        face_slider_frame.pack(fill=tk.X, pady=(0, 15))
-        
         self.max_no_face_var = tk.IntVar(value=self.app.max_no_face_intervals)
-        face_scale = ttk.Scale(face_slider_frame, from_=1, to=20, 
-                              variable=self.max_no_face_var, orient=tk.HORIZONTAL,
-                              command=lambda v: self.snap_slider(self.max_no_face_var, self.face_label, 1, ""))
-        face_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        self.face_label = ttk.Label(face_slider_frame, text=f"{self.app.max_no_face_intervals}", width=6)
-        self.face_label.pack(side=tk.LEFT, padx=(10, 0))
-        
-        ttk.Label(detection_section, text="ℹ️ How long to keep showing detection result after face disappears", 
-                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W)
+        self.face_label = self.create_slider_control(
+            detection_section, "Display Reset:", "Clear detection after N intervals with no face",
+            self.max_no_face_var, 1, 20, 1, "",
+            "ℹ️ How long to keep showing detection result after face disappears")
         
         # Model Training Section
         train_section = ttk.LabelFrame(main_frame, text="Model Training", padding="15")
@@ -208,23 +164,29 @@ class SettingsWindow:
                 self.fake_path_var.set(folder)
     
     def snap_slider(self, var, label, step, suffix):
-        """Universal slider snapping function
-        
-        Args:
-            var: The tkinter variable to snap
-            label: The label widget to update
-            step: The step size (0.5 for half steps, 1 for integers, etc.)
-            suffix: Text to append to the value (e.g., "s", "%", "")
-        """
-        value = var.get()
-        snapped = round(value / step) * step
+        """Universal slider snapping function"""
+        snapped = round(var.get() / step) * step
         var.set(snapped)
+        fmt = f"{int(snapped)}{suffix}" if step >= 1 else f"{snapped:.1f}{suffix}"
+        label.config(text=fmt)
+    
+    def create_slider_control(self, parent, title, description, var, from_, to, step, suffix, warning):
+        """Helper to create slider with label and description"""
+        ttk.Label(parent, text=title, font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(parent, text=description, font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
         
-        # Format based on step size
-        if step >= 1:
-            label.config(text=f"{int(snapped)}{suffix}")
-        else:
-            label.config(text=f"{snapped:.1f}{suffix}")
+        slider_frame = ttk.Frame(parent)
+        slider_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        scale = ttk.Scale(slider_frame, from_=from_, to=to, variable=var, orient=tk.HORIZONTAL,
+                         command=lambda v: self.snap_slider(var, label, step, suffix))
+        scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        label = ttk.Label(slider_frame, text=f"{var.get()}{suffix}", width=6)
+        label.pack(side=tk.LEFT, padx=(10, 0))
+        
+        ttk.Label(parent, text=warning, font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
+        return label
     
     def train_model(self):
         real_path = self.real_path_var.get()
@@ -296,12 +258,13 @@ class ScreenDeepfakeDetector:
         # Screen capture variables (loaded from config)
         self.is_scanning = False
         self.current_frame = None
-        self.detection_interval = self.config['screen_capture'].get('detection_interval', 1.0)
+        sc_config = self.config['screen_capture']
+        self.detection_interval = sc_config.get('detection_interval', 1.0)
         self.last_detection_time = 0
         self.sct = mss.mss()
-        self.selected_monitor = self.config['screen_capture'].get('selected_monitor', 0)
-        self.no_face_count = self.config['screen_capture'].get('no_face_count', 0)
-        self.max_no_face_intervals = self.config['screen_capture'].get('max_no_face_intervals', 5)
+        self.selected_monitor = sc_config.get('selected_monitor', 0)
+        self.no_face_count = sc_config.get('no_face_count', 0)
+        self.max_no_face_intervals = sc_config.get('max_no_face_intervals', 5)
         
         # Training variables
         self.real_dataset_path = ""
@@ -314,7 +277,7 @@ class ScreenDeepfakeDetector:
         self.deepfakes_detected = 0
         
         # Initialize threshold var (needed for settings window) - load from config
-        self.threshold_var = tk.DoubleVar(value=self.config['screen_capture'].get('confidence_threshold', 60.0))
+        self.threshold_var = tk.DoubleVar(value=sc_config.get('confidence_threshold', 60.0))
         self.interval_var = tk.DoubleVar(value=self.detection_interval)
         
         self.setup_ui()
@@ -323,65 +286,48 @@ class ScreenDeepfakeDetector:
         # Register cleanup handler for when window is closed
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+    def get_default_config(self):
+        """Get default configuration structure"""
+        return {
+            "screen_capture": {
+                "detection_interval": 1.0,
+                "selected_monitor": 0,
+                "no_face_count": 0,
+                "max_no_face_intervals": 5,
+                "confidence_threshold": 60.0
+            }
+        }
+    
     def load_default_config(self):
         """Load default configuration from default.json"""
+        defaults = self.get_default_config()
         if not os.path.exists(self.default_config_path):
-            print(f"ERROR: {self.default_config_path} not found! Creating it...")
-            default_config = {
-                "screen_capture": {
-                    "detection_interval": 1.0,
-                    "selected_monitor": 0,
-                    "no_face_count": 0,
-                    "max_no_face_intervals": 5,
-                    "confidence_threshold": 60.0
-                }
-            }
             try:
                 with open(self.default_config_path, 'w') as f:
-                    json.dump(default_config, f, indent=2)
-                print(f"Created {self.default_config_path}")
+                    json.dump(defaults, f, indent=2)
             except Exception as e:
                 print(f"Could not create default config: {str(e)}")
-            return default_config
         
         try:
             with open(self.default_config_path, 'r') as f:
-                default_config = json.load(f)
-                print(f"Default configuration loaded from {self.default_config_path}")
-                return default_config
+                return json.load(f)
         except Exception as e:
             print(f"Error loading default config: {str(e)}")
-            # Fallback hardcoded defaults if default.json is corrupted
-            return {
-                "screen_capture": {
-                    "detection_interval": 1.0,
-                    "selected_monitor": 0,
-                    "no_face_count": 0,
-                    "max_no_face_intervals": 5,
-                    "confidence_threshold": 60.0
-                }
-            }
+            return defaults
     
     def load_config(self):
-        """Load configuration from config.json, fall back to default.json if not found"""
-        default_config = self.load_default_config()
+        """Load configuration from config.json, fall back to defaults"""
+        config = self.load_default_config()
         
         if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, 'r') as f:
-                    loaded_config = json.load(f)
-                    # Merge with defaults to ensure all keys exist
-                    config = default_config.copy()
-                    if 'screen_capture' in loaded_config:
-                        config['screen_capture'].update(loaded_config['screen_capture'])
-                    print(f"User configuration loaded from {self.config_path}")
-                    return config
+                    loaded = json.load(f)
+                    if 'screen_capture' in loaded:
+                        config['screen_capture'].update(loaded['screen_capture'])
             except Exception as e:
                 print(f"Error loading config: {str(e)}. Using defaults.")
-                return default_config
-        else:
-            print(f"No user config found. Using defaults from {self.default_config_path}")
-            return default_config
+        return config
     
     def save_config(self):
         """Save current configuration to config.json"""
@@ -578,39 +524,30 @@ class ScreenDeepfakeDetector:
     def browse_dataset(self, dataset_type):
         folder = filedialog.askdirectory(title=f"Select {dataset_type.capitalize()} Dataset Folder")
         if folder:
-            if dataset_type == "real":
-                self.real_path_var.set(folder)
-            else:
-                self.fake_path_var.set(folder)
+            var = self.real_path_var if dataset_type == "real" else self.fake_path_var
+            var.set(folder)
                 
     def extract_features(self, img):
         """Extract features from image for classification"""
         if img is None or img.size == 0:
             return None
-            
-        # Resize for consistency
+        
         img = cv2.resize(img, (128, 128))
-        
-        # Convert to different color spaces
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Extract features
         features = []
         
-        # Color histogram features
-        features.extend(cv2.calcHist([img], [0], None, [8], [0, 256]).flatten())
-        features.extend(cv2.calcHist([img], [1], None, [8], [0, 256]).flatten())
-        features.extend(cv2.calcHist([img], [2], None, [8], [0, 256]).flatten())
+        # Color histograms
+        for i in range(3):
+            features.extend(cv2.calcHist([img], [i], None, [8], [0, 256]).flatten())
         
-        # Texture features using Laplacian
+        # Texture and edge features
         laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-        features.extend([laplacian.mean(), laplacian.std(), laplacian.var()])
-        
-        # Edge detection features
         edges = cv2.Canny(gray, 100, 200)
-        features.extend([edges.mean(), edges.std()])
+        for arr in [laplacian, edges]:
+            features.extend([arr.mean(), arr.std()])
+        features.append(laplacian.var())
         
-        # Frequency domain features (DCT)
+        # DCT features
         dct = cv2.dct(np.float32(gray))
         features.extend([dct.mean(), dct.std(), dct.var()])
         
@@ -756,18 +693,19 @@ class ScreenDeepfakeDetector:
             self.update_statistics(best_result)
             
     def update_detection_display(self, result):
+        conf = result['confidence']
         threshold = self.threshold_var.get()
         
-        if result['confidence'] < threshold:
+        if conf < threshold:
             self.result_label.config(text="⚠ Uncertain", foreground='orange')
-            self.confidence_label.config(text=f"Confidence too low: {result['confidence']:.1f}%")
-        elif result['prediction'] == 1:  # Deepfake
+            self.confidence_label.config(text=f"Confidence too low: {conf:.1f}%")
+        elif result['prediction'] == 1:
             self.result_label.config(text="🚨 DEEPFAKE", foreground='red')
-            self.confidence_label.config(text=f"Confidence: {result['confidence']:.1f}%")
-            self.log(f"⚠ DEEPFAKE detected! Confidence: {result['confidence']:.1f}%")
-        else:  # Real
+            self.confidence_label.config(text=f"Confidence: {conf:.1f}%")
+            self.log(f"⚠ DEEPFAKE detected! Confidence: {conf:.1f}%")
+        else:
             self.result_label.config(text="✓ REAL", foreground='green')
-            self.confidence_label.config(text=f"Confidence: {result['confidence']:.1f}%")
+            self.confidence_label.config(text=f"Confidence: {conf:.1f}%")
     
     def reset_detection_display(self):
         """Reset display to 'No Detection' after consecutive intervals without faces"""
@@ -776,16 +714,12 @@ class ScreenDeepfakeDetector:
         self.no_face_count = 0  # Reset counter after display update
             
     def update_statistics(self, result):
-        threshold = self.threshold_var.get()
-        if result['confidence'] >= threshold:
+        if result['confidence'] >= self.threshold_var.get():
             self.total_scans += 1
             if result['prediction'] == 1:
                 self.deepfakes_detected += 1
-            
             real_count = self.total_scans - self.deepfakes_detected
-            self.stats_label.config(
-                text=f"Scans: {self.total_scans} | Deepfakes: {self.deepfakes_detected} | Real: {real_count}"
-            )
+            self.stats_label.config(text=f"Scans: {self.total_scans} | Deepfakes: {self.deepfakes_detected} | Real: {real_count}")
             
     def reset_statistics(self):
         self.total_scans = 0
