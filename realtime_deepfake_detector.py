@@ -15,7 +15,6 @@ import json
 import mss
 import shutil
 
-
 class SettingsWindow:
     """Separate window for settings"""
     
@@ -265,11 +264,9 @@ class SettingsWindow:
             messagebox.showerror("Error", "Dataset paths do not exist")
             return
 
-        # Save the paths back to the main app and run the test in a background thread
         self.app.real_path_var.set(self.real_path_var.get())
         self.app.fake_path_var.set(self.fake_path_var.get())
         threading.Thread(target=self.app.test_model, args=(self.real_path_var.get(), self.fake_path_var.get()), daemon=True).start()
-
 
 class ConfigManager:
     """Manages configuration loading and saving"""
@@ -330,7 +327,6 @@ class ConfigManager:
             print(f"Error saving config: {e}")
             return False
 
-
 class DeepfakeModel:
     """Handles model training and prediction"""
     
@@ -341,7 +337,6 @@ class DeepfakeModel:
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
         
-        # Model versioning
         self.model_archive_dir = "model_archive"
         os.makedirs(self.model_archive_dir, exist_ok=True)
         
@@ -359,7 +354,6 @@ class DeepfakeModel:
             joblib.dump(self.model, self.model_path)
     
     def archive_current_model(self):
-        """Archive the current model before training a new one"""
         if os.path.exists(self.model_path):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             archive_path = os.path.join(self.model_archive_dir, f"model_{timestamp}.pkl")
@@ -383,18 +377,15 @@ class DeepfakeModel:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         features = []
         
-        # Color histograms
         for i in range(3):
             features.extend(cv2.calcHist([img], [i], None, [8], [0, 256]).flatten())
         
-        # Texture and edge features
         laplacian = cv2.Laplacian(gray, cv2.CV_64F)
         edges = cv2.Canny(gray, 100, 200)
         for arr in [laplacian, edges]:
             features.extend([arr.mean(), arr.std()])
         features.append(laplacian.var())
         
-        # DCT features
         dct = cv2.dct(np.float32(gray))
         features.extend([dct.mean(), dct.std(), dct.var()])
         
@@ -416,18 +407,15 @@ class DeepfakeModel:
         return {'prediction': prediction, 'confidence': confidence}
     
     def train(self, real_path, fake_path, log_callback, progress_callback=None, archive=True):
-        """Train the model on provided datasets"""
         log_callback("Starting model training...")
         progress_var = progress_callback if progress_callback else tk.DoubleVar()
         
         try:
-            # Archive current model
             if archive:
                 archive_path = self.archive_current_model()
                 if archive_path:
                     log_callback(f"Current model archived to: {os.path.basename(archive_path)}")
             
-            # Load datasets
             log_callback("Loading real images...")
             X_real, y_real = self._load_dataset(real_path, 0, progress_var, log_callback)
             log_callback("Loading fake images...")
@@ -437,20 +425,17 @@ class DeepfakeModel:
                 log_callback("Error: No data loaded from datasets")
                 return False
                 
-            # Combine and split
             X = np.array(X_real + X_fake)
             y = np.array(y_real + y_fake)
             log_callback(f"Total samples: {len(X)} (Real: {len(X_real)}, Fake: {len(X_fake)})")
             
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             
-            # Train
             log_callback("Training Random Forest model...")
             progress_var.set(60)
             self.model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
             self.model.fit(X_train, y_train)
             
-            # Test
             progress_var.set(90)
             y_pred = self.model.predict(X_test)
             accuracy = accuracy_score(y_test, y_pred)
@@ -458,14 +443,12 @@ class DeepfakeModel:
             log_callback(f"Model accuracy: {accuracy:.4f}")
             progress_var.set(100)
             
-            # Save
             self.save()
             log_callback("✓ Training completed successfully!")
-            
             return accuracy
             
         except Exception as e:
-            log_callback(f"✗ Training error: {e}")
+            log_callback(f"❌ Training error: {e}")
             return False
         finally:
             if progress_callback:
@@ -495,7 +478,6 @@ class DeepfakeModel:
         log_callback(f"Loaded {len(X)} valid samples from {os.path.basename(path)}")
         return X, y
 
-
 class SelfLearningManager:
     """Manages self-learning data collection and retraining"""
     
@@ -503,28 +485,21 @@ class SelfLearningManager:
         self.base_dir = base_dir
         self.real_dir = os.path.join(base_dir, "real")
         self.fake_dir = os.path.join(base_dir, "fake")
-        
-        # Create directories
         os.makedirs(self.real_dir, exist_ok=True)
         os.makedirs(self.fake_dir, exist_ok=True)
-        
-        # Session tracking
         self.session_active = False
         self.session_samples = {'real': 0, 'fake': 0}
         
     def start_session(self):
-        """Start a new detection session"""
         self.session_active = True
         self.session_samples = {'real': 0, 'fake': 0}
         
     def end_session(self):
-        """End the current detection session"""
         self.session_active = False
         total = self.session_samples['real'] + self.session_samples['fake']
         return total
         
     def save_classified_image(self, face_img, prediction, confidence):
-        """Save a classified image for future training"""
         if not self.session_active:
             return False
             
@@ -532,26 +507,21 @@ class SelfLearningManager:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             label = "real" if prediction == 0 else "fake"
             target_dir = self.real_dir if prediction == 0 else self.fake_dir
-            
             filename = f"{label}_{confidence:.1f}_{timestamp}.png"
             filepath = os.path.join(target_dir, filename)
-            
             cv2.imwrite(filepath, face_img)
             self.session_samples[label] += 1
             return True
-            
         except Exception as e:
             print(f"Error saving classified image: {e}")
             return False
     
     def get_sample_counts(self):
-        """Get total counts of collected samples"""
         real_count = len([f for f in os.listdir(self.real_dir) if f.endswith('.png')])
         fake_count = len([f for f in os.listdir(self.fake_dir) if f.endswith('.png')])
         return {'real': real_count, 'fake': fake_count}
     
     def clear_data(self):
-        """Clear all collected training data"""
         try:
             for file in os.listdir(self.real_dir):
                 os.remove(os.path.join(self.real_dir, file))
@@ -562,7 +532,6 @@ class SelfLearningManager:
             print(f"Error clearing data: {e}")
             return False
 
-
 class ScreenDeepfakeDetector:
     """Main application class"""
     
@@ -572,19 +541,16 @@ class ScreenDeepfakeDetector:
         self.root.geometry("1200x850")
         self.root.resizable(True, True)
         
-        # Initialize components
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
         self.model = DeepfakeModel()
         self.self_learning = SelfLearningManager()
         
-        # Screen capture
         self.sct = mss.mss()
         self.is_scanning = False
         self.current_frame = None
         self.last_detection_time = 0
         
-        # Configuration variables
         sc = self.config['screen_capture']
         self.detection_interval = sc.get('detection_interval', 1.0)
         self.selected_monitor = sc.get('selected_monitor', 0)
@@ -592,7 +558,6 @@ class ScreenDeepfakeDetector:
         self.max_no_face_intervals = sc.get('max_no_face_intervals', 5)
         self.min_samples_for_retrain = sc.get('min_samples_for_retrain', 20)
         
-        # UI variables
         self.threshold_var = tk.DoubleVar(value=sc.get('confidence_threshold', 60.0))
         self.interval_var = tk.DoubleVar(value=self.detection_interval)
         self.auto_start_var = tk.BooleanVar(value=sc.get('auto_start_scanning', False))
@@ -600,21 +565,17 @@ class ScreenDeepfakeDetector:
         self.real_path_var = tk.StringVar()
         self.fake_path_var = tk.StringVar()
         
-        # Detection state
         self.last_detection_result = None
         self.last_detected_faces = []
         self.had_detection_in_session = False
         self.is_retraining = False
         
-        # Statistics
         self.total_scans = 0
         self.deepfakes_detected = 0
         
-        # Setup UI and load model
         self.setup_ui()
         self._load_model()
         
-        # Auto-start if enabled
         if self.auto_start_var.get() and self.model.model:
             self.root.after(500, self.start_scanning)
             self.log("Auto-start enabled: Scanning will begin automatically")
@@ -624,22 +585,18 @@ class ScreenDeepfakeDetector:
     def setup_ui(self):
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=3)
         main_frame.columnconfigure(1, weight=2)
         main_frame.rowconfigure(1, weight=1)
         
-        # Title
         ttk.Label(main_frame, text="🖥️ Screen Deepfake Detection System", 
                   font=('Arial', 18, 'bold')).grid(row=0, column=0, columnspan=2, pady=10)
         
-        # Left and right columns
         self._setup_left_column(main_frame)
         self._setup_right_column(main_frame)
         
-        # Status bar
         self.status_var = tk.StringVar(value="Ready - Train a model to begin")
         ttk.Label(main_frame, textvariable=self.status_var, 
                   relief=tk.SUNKEN, anchor=tk.W).grid(row=2, column=0, columnspan=2, 
@@ -651,7 +608,6 @@ class ScreenDeepfakeDetector:
         left_frame.rowconfigure(1, weight=1)
         left_frame.columnconfigure(0, weight=1)
         
-        # Controls
         controls = ttk.Frame(left_frame)
         controls.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
@@ -659,7 +615,7 @@ class ScreenDeepfakeDetector:
                                        command=self.start_scanning, style='Accent.TButton')
         self.start_button.pack(side=tk.LEFT, padx=5)
         
-        self.stop_button = ttk.Button(controls, text="⏸ Stop Scanning", 
+        self.stop_button = ttk.Button(controls, text="⏹ Stop Scanning", 
                                       command=self.stop_scanning, state='disabled')
         self.stop_button.pack(side=tk.LEFT, padx=5)
         
@@ -674,7 +630,6 @@ class ScreenDeepfakeDetector:
         ttk.Button(controls, text="⚙️ Settings", 
                   command=lambda: SettingsWindow(self.root, self)).pack(side=tk.RIGHT, padx=5)
         
-        # Video feed
         video_frame = ttk.LabelFrame(left_frame, text="Screen Capture Feed", padding="5")
         video_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         video_frame.rowconfigure(0, weight=1)
@@ -685,18 +640,14 @@ class ScreenDeepfakeDetector:
                                      background='black', foreground='white', font=('Arial', 14))
         self.video_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Results
         result_frame = ttk.Frame(left_frame)
         result_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
-        
         self.result_label = ttk.Label(result_frame, text="No Detection", 
                                       font=('Arial', 24, 'bold'), foreground='gray')
         self.result_label.pack()
-        
         self.confidence_label = ttk.Label(result_frame, text="", font=('Arial', 14))
         self.confidence_label.pack()
         
-        # Statistics
         self.stats_label = ttk.Label(left_frame, text="Scans: 0 | Deepfakes: 0 | Real: 0", 
                                      font=('Arial', 10), foreground='blue')
         self.stats_label.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
@@ -707,7 +658,6 @@ class ScreenDeepfakeDetector:
         right_frame.rowconfigure(3, weight=1)
         right_frame.columnconfigure(0, weight=1)
         
-        # Model status
         status_frame = ttk.LabelFrame(right_frame, text="Model Status", padding="10")
         status_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         status_frame.columnconfigure(1, weight=1)
@@ -727,7 +677,6 @@ class ScreenDeepfakeDetector:
         ttk.Label(status_frame, textvariable=self.region_var, 
                  font=('Arial', 8)).grid(row=2, column=1, sticky=tk.W, padx=(5, 0))
         
-        # Self-Learning Status
         learning_frame = ttk.LabelFrame(right_frame, text="Self-Learning Status", padding="10")
         learning_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         learning_frame.columnconfigure(1, weight=1)
@@ -746,21 +695,17 @@ class ScreenDeepfakeDetector:
                   command=self._clear_training_data).grid(row=2, column=0, columnspan=2, 
                                                           sticky=(tk.W, tk.E), pady=(5, 0))
         
-        # Quick actions
         actions_frame = ttk.LabelFrame(right_frame, text="Quick Actions", padding="10")
         actions_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        
         ttk.Button(actions_frame, text="🔄 Reset Statistics", 
                   command=self._reset_statistics).pack(fill=tk.X, pady=2)
         ttk.Button(actions_frame, text="💾 Save Screenshot", 
                   command=self._save_screenshot).pack(fill=tk.X, pady=2)
         
-        # Log
         log_frame = ttk.LabelFrame(right_frame, text="Activity Log", padding="5")
         log_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
-        
         self.log_text = ScrolledText(log_frame, height=12, width=40, wrap=tk.WORD)
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
     
@@ -788,7 +733,6 @@ class ScreenDeepfakeDetector:
                 "min_samples_for_retrain": self.min_samples_for_retrain
             }
         }
-        
         if self.config_manager.save(config):
             self.log(f"Configuration saved to {self.config_manager.config_path}")
             return True
@@ -803,17 +747,14 @@ class ScreenDeepfakeDetector:
             self.status_var.set("Ready - Click 'Start Scanning'")
         else:
             self.log("No trained model found. Please train a model first.")
-        
         self._update_learning_status()
     
     def _update_learning_status(self):
-        """Update the self-learning status display"""
         self.learning_status_var.set("Yes" if self.enable_self_learning_var.get() else "No")
         counts = self.self_learning.get_sample_counts()
         self.samples_count_var.set(f"Real: {counts['real']} | Fake: {counts['fake']}")
     
     def _clear_training_data(self):
-        """Clear all collected training data"""
         if messagebox.askyesno("Confirm", "Are you sure you want to clear all collected training data?"):
             if self.self_learning.clear_data():
                 self.log("Training data cleared successfully")
@@ -838,18 +779,14 @@ class ScreenDeepfakeDetector:
         if not self.model.model:
             messagebox.showerror("Error", "No model loaded. Please train a model first.")
             return
-            
         self.is_scanning = True
         self.start_button.config(state='disabled')
         self.stop_button.config(state='normal')
         self.log("Screen scanning started")
         self.status_var.set("Scanning screen...")
-        
-        # Start self-learning session
         if self.enable_self_learning_var.get():
             self.self_learning.start_session()
             self.log("Self-learning session started")
-        
         self.had_detection_in_session = False
         self._update_screen_capture()
     
@@ -864,17 +801,12 @@ class ScreenDeepfakeDetector:
         self.no_face_count = 0
         self.log("Screen scanning stopped")
         self.status_var.set("Ready")
-        
-        # End self-learning session and check for retraining
         if self.enable_self_learning_var.get() and self.had_detection_in_session:
             samples_collected = self.self_learning.end_session()
             self.log(f"Session ended: {samples_collected} samples collected")
             self._update_learning_status()
-            
-            # Check if we should retrain
             counts = self.self_learning.get_sample_counts()
             total_samples = counts['real'] + counts['fake']
-            
             if total_samples >= self.min_samples_for_retrain and not self.is_retraining:
                 self.log(f"Sufficient samples collected ({total_samples}). Initiating retraining...")
                 threading.Thread(target=self._retrain_model, daemon=True).start()
@@ -894,26 +826,19 @@ class ScreenDeepfakeDetector:
     def _update_screen_capture(self):
         if not self.is_scanning:
             return
-            
         frame = self._capture_screen()
         if frame is None:
             self.log("Failed to capture screen")
             self.stop_scanning()
             return
-            
         self.current_frame = frame.copy()
         display_frame = frame.copy()
-        
-        # Detect faces
         faces = self.model.detect_faces(frame)
         self.faces_count_var.set(str(len(faces)))
         self.last_detected_faces = faces
-        
-        # Process detection
         current_time = datetime.now().timestamp()
         if current_time - self.last_detection_time >= self.interval_var.get():
             self.last_detection_time = current_time
-            
             if len(faces) > 0:
                 self.no_face_count = 0
                 threading.Thread(target=self._detect_deepfake, args=(faces,), daemon=True).start()
@@ -921,21 +846,14 @@ class ScreenDeepfakeDetector:
                 self.no_face_count += 1
                 if self.no_face_count >= self.max_no_face_intervals:
                     self._reset_detection_display()
-        
-        # Draw annotations
         for (x, y, w, h) in faces:
             cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
-            cv2.putText(display_frame, "Face", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                       0.9, (0, 255, 0), 2)
-            
+            cv2.putText(display_frame, "Face", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
             if self.last_detection_result:
                 result_text = "DEEPFAKE" if self.last_detection_result['prediction'] == 1 else "REAL"
                 conf = self.last_detection_result['confidence']
                 color = (0, 0, 255) if self.last_detection_result['prediction'] == 1 else (0, 255, 0)
-                cv2.putText(display_frame, f"{result_text} {conf:.1f}%", 
-                           (x, y+h+25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-        
-        # Display frame
+                cv2.putText(display_frame, f"{result_text} {conf:.1f}%", (x, y+h+25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         self._display_frame(display_frame)
         self.root.after(100, self._update_screen_capture)
     
@@ -944,51 +862,38 @@ class ScreenDeepfakeDetector:
         aspect_ratio = w / h
         display_height = 480
         display_width = int(display_height * aspect_ratio)
-        
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(frame_rgb)
         img = img.resize((min(display_width, 800), display_height), Image.Resampling.LANCZOS)
         imgtk = ImageTk.PhotoImage(image=img)
-        
         self.video_label.imgtk = imgtk
         self.video_label.configure(image=imgtk, text="")
     
     def _detect_deepfake(self, faces):
         if not self.model.model or self.current_frame is None:
             return
-            
         results = []
         for (x, y, w, h) in faces:
             padding = 20
             x1, y1 = max(0, x - padding), max(0, y - padding)
             x2 = min(self.current_frame.shape[1], x + w + padding)
             y2 = min(self.current_frame.shape[0], y + h + padding)
-            
             face_img = self.current_frame[y1:y2, x1:x2]
             result = self.model.predict(face_img)
-            
             if result and result['confidence'] >= self.threshold_var.get():
                 results.append((result, face_img))
-        
         if results:
             best_result, best_face_img = max(results, key=lambda x: x[0]['confidence'])
             self._update_detection_display(best_result)
             self._update_statistics(best_result)
             self.had_detection_in_session = True
-            
-            # Save for self-learning
             if self.enable_self_learning_var.get() and self.self_learning.session_active:
-                self.self_learning.save_classified_image(
-                    best_face_img, 
-                    best_result['prediction'], 
-                    best_result['confidence']
-                )
+                self.self_learning.save_classified_image(best_face_img, best_result['prediction'], best_result['confidence'])
     
     def _update_detection_display(self, result):
         self.last_detection_result = result
         conf = result['confidence']
         threshold = self.threshold_var.get()
-        
         if conf < threshold:
             self.result_label.config(text="⚠ Uncertain", foreground='orange')
             self.confidence_label.config(text=f"Confidence too low: {conf:.1f}%")
@@ -1012,8 +917,7 @@ class ScreenDeepfakeDetector:
             if result['prediction'] == 1:
                 self.deepfakes_detected += 1
             real_count = self.total_scans - self.deepfakes_detected
-            self.stats_label.config(text=f"Scans: {self.total_scans} | "
-                                        f"Deepfakes: {self.deepfakes_detected} | Real: {real_count}")
+            self.stats_label.config(text=f"Scans: {self.total_scans} | Deepfakes: {self.deepfakes_detected} | Real: {real_count}")
     
     def _reset_statistics(self):
         self.total_scans = 0
@@ -1025,165 +929,93 @@ class ScreenDeepfakeDetector:
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No screen capture available")
             return
-        
         annotated_frame = self.current_frame.copy()
-        
         for (x, y, w, h) in self.last_detected_faces:
             cv2.rectangle(annotated_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
-            cv2.putText(annotated_frame, "Face", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                       0.9, (0, 255, 0), 2)
-            
+            cv2.putText(annotated_frame, "Face", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
             if self.last_detection_result:
                 result_text = "DEEPFAKE" if self.last_detection_result['prediction'] == 1 else "REAL"
                 conf = self.last_detection_result['confidence']
                 color = (0, 0, 255) if self.last_detection_result['prediction'] == 1 else (0, 255, 0)
-                cv2.putText(annotated_frame, f"{result_text} {conf:.1f}%", 
-                           (x, y+h+25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-        
+                cv2.putText(annotated_frame, f"{result_text} {conf:.1f}%", (x, y+h+25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"screenshot_{timestamp}.png"
         cv2.imwrite(filename, annotated_frame)
-        
-        if self.last_detection_result:
-            result_type = "DEEPFAKE" if self.last_detection_result['prediction'] == 1 else "REAL"
-            self.log(f"Screenshot saved: {filename} (Detection: {result_type} "
-                    f"{self.last_detection_result['confidence']:.1f}%)")
-        else:
-            self.log(f"Screenshot saved: {filename}")
-        
         messagebox.showinfo("Success", f"Screenshot saved as {filename}")
     
     def _retrain_model(self):
-        """Retrain the model using collected samples"""
         if self.is_retraining:
             return
-            
         self.is_retraining = True
         self.log("=" * 50)
         self.log("RETRAINING INITIATED")
         self.log("=" * 50)
         self.status_var.set("Retraining model with new data...")
-        
         try:
-            # Get paths to self-learning data
             real_path = self.self_learning.real_dir
             fake_path = self.self_learning.fake_dir
-            
-            # Train model with archiving
             result = self.model.train(real_path, fake_path, self.log, archive=True)
-            
             if result:
                 self.log(f"✓ Retraining completed! New accuracy: {result:.4f}")
                 self.model_status_var.set("Model loaded ✓ (Retrained)")
-                self.status_var.set("Ready - Model has been updated")
-                
-                # Clear the training data after successful retraining
                 self.self_learning.clear_data()
-                self.log("Training data cleared after successful retraining")
                 self._update_learning_status()
-                
-                messagebox.showinfo("Retraining Complete", 
-                                  f"Model retrained successfully!\nNew accuracy: {result:.4f}")
+                messagebox.showinfo("Retraining Complete", f"Model retrained successfully!\nNew accuracy: {result:.4f}")
             else:
-                self.log("✗ Retraining failed")
-                self.status_var.set("Ready - Retraining failed")
-                messagebox.showerror("Error", "Model retraining failed. Check log for details.")
-                
+                self.log("❌ Retraining failed")
         except Exception as e:
-            self.log(f"✗ Retraining error: {e}")
-            self.status_var.set("Ready - Retraining error")
+            self.log(f"❌ Retraining error: {e}")
         finally:
             self.is_retraining = False
+            self.status_var.set("Ready")
             self.log("=" * 50)
     
     def train_model(self, progress_callback=None):
         real_path = self.real_path_var.get()
         fake_path = self.fake_path_var.get()
-        
         if not real_path or not fake_path:
             messagebox.showerror("Error", "Please specify both dataset paths")
             return
-            
-        if not os.path.exists(real_path) or not os.path.exists(fake_path):
-            messagebox.showerror("Error", "Dataset paths do not exist")
-            return
-        
         self.status_var.set("Training in progress...")
-        
         def train_thread():
             result = self.model.train(real_path, fake_path, self.log, progress_callback, archive=True)
-            
             if result:
                 self.model_status_var.set("Model loaded ✓")
                 self.status_var.set("Ready - Click 'Start Scanning'")
                 messagebox.showinfo("Success", f"Model trained successfully!\nAccuracy: {result:.4f}")
             else:
                 self.status_var.set("Training failed")
-                messagebox.showerror("Error", "Training failed. Check log for details.")
-        
         threading.Thread(target=train_thread, daemon=True).start()
 
     def test_model(self, real_path, fake_path):
-        """Test the currently saved model on provided real/fake dataset folders.
-
-        This runs in a background thread when invoked from the settings UI.
-        Results are logged to the app log and a summary is shown in a messagebox.
-        """
         if not real_path or not fake_path:
             messagebox.showerror("Error", "Please specify both dataset paths")
             return
-
-        if not os.path.exists(real_path) or not os.path.exists(fake_path):
-            messagebox.showerror("Error", "Dataset paths do not exist")
-            return
-
         self.status_var.set("Testing model...")
         try:
-            # Ensure model is loaded
             if not self.model.load():
-                self.log("No trained model found. Please train a model first.")
-                messagebox.showerror("Error", "No trained model found. Please train a model first.")
-                self.status_var.set("Ready")
+                messagebox.showerror("Error", "No trained model found.")
                 return
-
-            # Load datasets (uses internal loader which logs progress)
             Xr, yr = self.model._load_dataset(real_path, 0, None, self.log)
             Xf, yf = self.model._load_dataset(fake_path, 1, None, self.log)
-
             X = np.array(Xr + Xf)
             y = np.array(yr + yf)
-
             if X.size == 0:
-                messagebox.showerror("Error", "No valid samples were loaded from the provided datasets")
-                self.status_var.set("Ready")
+                messagebox.showerror("Error", "No valid samples loaded.")
                 return
-
             y_pred = self.model.model.predict(X)
-
             acc = accuracy_score(y, y_pred)
-            report = classification_report(y, y_pred, target_names=["real", "fake"], zero_division=0)
-            cm = confusion_matrix(y, y_pred)
-
-            counts = {"total": int(len(y)), "real": int(len(Xr)), "fake": int(len(Xf))}
-
-            self.log(f"Test completed — Accuracy: {acc:.4f} | Samples: {counts['total']} (Real: {counts['real']}, Fake: {counts['fake']})")
-            self.log("Confusion matrix:")
-            self.log(str(cm))
-            self.log("Classification report:")
-            for line in report.splitlines():
-                self.log(line)
-
-            messagebox.showinfo("Model Test Results", f"Accuracy: {acc:.4f}\nSamples: {counts['total']} (Real: {counts['real']}, Fake: {counts['fake']})")
-
+            self.log(f"Test completed — Accuracy: {acc:.4f}")
+            messagebox.showinfo("Model Test Results", f"Accuracy: {acc:.4f}")
         except Exception as e:
-            self.log(f"✗ Testing error: {e}")
-            messagebox.showerror("Error", f"Model testing failed: {e}")
+            self.log(f"❌ Testing error: {e}")
         finally:
             self.status_var.set("Ready")
 
-
-from detector.ui import main
-
+def main():
+    root = tk.Tk()
+    app = ScreenDeepfakeDetector(root)
+    root.mainloop()
 
 if __name__ == "__main__":
     main()
