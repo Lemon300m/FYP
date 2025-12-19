@@ -2,18 +2,26 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, Toplevel
 from tkinter.scrolledtext import ScrolledText
 import cv2
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageGrab
 import threading
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score
 import joblib
 import os
 from datetime import datetime
 import json
-import mss
 import shutil
+import sys
+
+# For multi-monitor support
+try:
+    from screeninfo import get_monitors
+    MULTI_MONITOR_SUPPORT = True
+except ImportError:
+    MULTI_MONITOR_SUPPORT = False
+    print("screeninfo not installed. Multi-monitor support disabled.")
 
 class SettingsWindow:
     """Separate window for settings"""
@@ -448,7 +456,7 @@ class DeepfakeModel:
             return accuracy
             
         except Exception as e:
-            log_callback(f"❌ Training error: {e}")
+            log_callback(f"✗ Training error: {e}")
             return False
         finally:
             if progress_callback:
@@ -532,6 +540,74 @@ class SelfLearningManager:
             print(f"Error clearing data: {e}")
             return False
 
+class ScreenCaptureManager:
+    """Manages screen capture using PIL ImageGrab - PyInstaller friendly"""
+    
+    def __init__(self):
+        self.monitors = self._detect_monitors()
+        self.selected_monitor = 0
+        
+    def _detect_monitors(self):
+        """Detect available monitors"""
+        monitors = [{"name": "All Screens", "bbox": None}]
+        
+        if MULTI_MONITOR_SUPPORT:
+            try:
+                screen_monitors = get_monitors()
+                for idx, monitor in enumerate(screen_monitors, 1):
+                    monitors.append({
+                        "name": f"Monitor {idx}",
+                        "bbox": (monitor.x, monitor.y, 
+                                monitor.x + monitor.width, 
+                                monitor.y + monitor.height),
+                        "width": monitor.width,
+                        "height": monitor.height
+                    })
+            except Exception as e:
+                print(f"Error detecting monitors: {e}")
+        
+        return monitors
+    
+    def get_monitor_names(self):
+        """Get list of monitor names"""
+        return [m["name"] for m in self.monitors]
+    
+    def set_monitor(self, index):
+        """Set the active monitor"""
+        if 0 <= index < len(self.monitors):
+            self.selected_monitor = index
+            return True
+        return False
+    
+    def capture(self):
+        """Capture screen using PIL ImageGrab"""
+        try:
+            monitor = self.monitors[self.selected_monitor]
+            
+            # Capture screen
+            if monitor["bbox"] is None:
+                # Capture all screens
+                screenshot = ImageGrab.grab()
+            else:
+                # Capture specific monitor
+                screenshot = ImageGrab.grab(bbox=monitor["bbox"])
+            
+            # Convert PIL Image to numpy array (OpenCV format)
+            img = np.array(screenshot)
+            
+            # Convert RGB to BGR (OpenCV uses BGR)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            
+            # Get dimensions
+            height, width = img.shape[:2]
+            region_info = f"{width}x{height}"
+            
+            return img, region_info
+            
+        except Exception as e:
+            print(f"Screen capture error: {e}")
+            return None, None
+
 class ScreenDeepfakeDetector:
     """Main application class"""
     
@@ -545,8 +621,8 @@ class ScreenDeepfakeDetector:
         self.config = self.config_manager.load()
         self.model = DeepfakeModel()
         self.self_learning = SelfLearningManager()
+        self.screen_capture = ScreenCaptureManager()
         
-        self.sct = mss.mss()
         self.is_scanning = False
         self.current_frame = None
         self.last_detection_time = 0
@@ -621,7 +697,7 @@ class ScreenDeepfakeDetector:
         
         ttk.Label(controls, text="Monitor:").pack(side=tk.LEFT, padx=(20, 5))
         self.monitor_var = tk.StringVar(value="All Screens")
-        monitor_options = ["All Screens"] + [f"Monitor {i}" for i in range(1, len(self.sct.monitors))]
+        monitor_options = self.screen_capture.get_monitor_names()
         monitor_combo = ttk.Combobox(controls, textvariable=self.monitor_var, 
                                     values=monitor_options, width=15, state='readonly')
         monitor_combo.pack(side=tk.LEFT)
@@ -765,8 +841,13 @@ class ScreenDeepfakeDetector:
     
     def _on_monitor_change(self, event=None):
         selection = self.monitor_var.get()
-        self.selected_monitor = 0 if selection == "All Screens" else int(selection.split()[-1])
-        self.log(f"Monitor changed to: {selection}")
+        monitor_names = self.screen_capture.get_monitor_names()
+        try:
+            self.selected_monitor = monitor_names.index(selection)
+            self.screen_capture.set_monitor(self.selected_monitor)
+            self.log(f"Monitor changed to: {selection}")
+        except ValueError:
+            self.log(f"Invalid monitor selection: {selection}")
     
     def _on_closing(self):
         if self.is_scanning:
@@ -811,31 +892,25 @@ class ScreenDeepfakeDetector:
                 self.log(f"Sufficient samples collected ({total_samples}). Initiating retraining...")
                 threading.Thread(target=self._retrain_model, daemon=True).start()
     
-    def _capture_screen(self):
-        try:
-            monitor = self.sct.monitors[self.selected_monitor]
-            sct_img = self.sct.grab(monitor)
-            img = np.array(sct_img)
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            self.region_var.set(f"{monitor['width']}x{monitor['height']}")
-            return img
-        except Exception as e:
-            self.log(f"Screen capture error: {e}")
-            return None
-    
     def _update_screen_capture(self):
         if not self.is_scanning:
             return
-        frame = self._capture_screen()
+            
+        frame, region_info = self.screen_capture.capture()
+        
         if frame is None:
             self.log("Failed to capture screen")
             self.stop_scanning()
             return
+            
         self.current_frame = frame.copy()
+        self.region_var.set(region_info)
+        
         display_frame = frame.copy()
         faces = self.model.detect_faces(frame)
         self.faces_count_var.set(str(len(faces)))
         self.last_detected_faces = faces
+        
         current_time = datetime.now().timestamp()
         if current_time - self.last_detection_time >= self.interval_var.get():
             self.last_detection_time = current_time
@@ -846,6 +921,7 @@ class ScreenDeepfakeDetector:
                 self.no_face_count += 1
                 if self.no_face_count >= self.max_no_face_intervals:
                     self._reset_detection_display()
+        
         for (x, y, w, h) in faces:
             cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
             cv2.putText(display_frame, "Face", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
@@ -854,6 +930,7 @@ class ScreenDeepfakeDetector:
                 conf = self.last_detection_result['confidence']
                 color = (0, 0, 255) if self.last_detection_result['prediction'] == 1 else (0, 255, 0)
                 cv2.putText(display_frame, f"{result_text} {conf:.1f}%", (x, y+h+25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        
         self._display_frame(display_frame)
         self.root.after(100, self._update_screen_capture)
     
@@ -942,6 +1019,7 @@ class ScreenDeepfakeDetector:
         filename = f"screenshot_{timestamp}.png"
         cv2.imwrite(filename, annotated_frame)
         messagebox.showinfo("Success", f"Screenshot saved as {filename}")
+        self.log(f"Screenshot saved: {filename}")
     
     def _retrain_model(self):
         if self.is_retraining:
@@ -962,9 +1040,9 @@ class ScreenDeepfakeDetector:
                 self._update_learning_status()
                 messagebox.showinfo("Retraining Complete", f"Model retrained successfully!\nNew accuracy: {result:.4f}")
             else:
-                self.log("❌ Retraining failed")
+                self.log("✗ Retraining failed")
         except Exception as e:
-            self.log(f"❌ Retraining error: {e}")
+            self.log(f"✗ Retraining error: {e}")
         finally:
             self.is_retraining = False
             self.status_var.set("Ready")
@@ -1008,7 +1086,7 @@ class ScreenDeepfakeDetector:
             self.log(f"Test completed — Accuracy: {acc:.4f}")
             messagebox.showinfo("Model Test Results", f"Accuracy: {acc:.4f}")
         except Exception as e:
-            self.log(f"❌ Testing error: {e}")
+            self.log(f"✗ Testing error: {e}")
         finally:
             self.status_var.set("Ready")
 
