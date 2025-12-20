@@ -22,6 +22,19 @@ import sys
 import winreg
 from tray_handler import TrayHandler
 
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+def get_data_path(relative_path):
+    """Get path for data files (always use current working directory)"""
+    return os.path.abspath(relative_path)
+
 # For multi-monitor support
 try:
     from screeninfo import get_monitors
@@ -246,10 +259,16 @@ class SettingsWindow:
             
             app_name = "DeepfakeDetector"
             if enable:
-                # Get the path to the current Python executable and script
-                exe_path = sys.executable
-                script_path = os.path.abspath(__file__)
-                full_command = f'"{exe_path}" "{script_path}"'
+                # FIXED: Use the executable path if frozen, otherwise Python script
+                if getattr(sys, 'frozen', False):
+                    # Running as compiled executable
+                    exe_path = sys.executable
+                    full_command = f'"{exe_path}"'
+                else:
+                    # Running as Python script
+                    exe_path = sys.executable
+                    script_path = os.path.abspath(__file__)
+                    full_command = f'"{exe_path}" "{script_path}"'
                 winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, full_command)
                 self.app.log("✓ Application added to Windows startup")
             else:
@@ -336,8 +355,8 @@ class ConfigManager:
     """Manages configuration loading and saving"""
     
     def __init__(self, config_path="config.json", default_path="default.json"):
-        self.config_path = config_path
-        self.default_path = default_path
+        self.config_path = get_data_path(config_path)
+        self.default_path = get_data_path(default_path)
         
     @staticmethod
     def get_defaults():
@@ -395,34 +414,36 @@ class DeepfakeModel:
     """Handles model training and prediction"""
     
     def __init__(self, model_path="deepfake_model.pkl"):
-        self.model_path = model_path
+        self.model_path = get_data_path(model_path)
         self.model = None
         
-        # Load cascade classifier with fallback
-        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        self.face_cascade = None
+    
+        cascade_paths = [
+            get_resource_path('haarcascade_frontalface_default.xml'),  # Bundled with exe
+            os.path.join(os.path.dirname(__file__), 'haarcascade_frontalface_default.xml'),  # Same dir as script
+            'haarcascade_frontalface_default.xml',  # Current directory
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'  # OpenCV data
+        ]
         
-        if self.face_cascade.empty():
-            # Try alternative path for PyInstaller bundle
-            alt_paths = [
-                os.path.join(os.path.dirname(__file__), 'cv2', 'data', 'haarcascade_frontalface_default.xml'),
-                'haarcascade_frontalface_default.xml'
-            ]
-            for alt_path in alt_paths:
-                if os.path.exists(alt_path):
-                    self.face_cascade = cv2.CascadeClassifier(alt_path)
+        for cascade_path in cascade_paths:
+            if os.path.exists(cascade_path):
+                self.face_cascade = cv2.CascadeClassifier(cascade_path)
+                if not self.face_cascade.empty():
+                    print(f"✓ Loaded Haar Cascade from: {cascade_path}")
                     break
         
-        self.model_archive_dir = "model_archive"
+        if self.face_cascade is None or self.face_cascade.empty():
+            print("⚠ WARNING: Could not load Haar Cascade classifier!")
+            print("Face detection will not work properly.")
+        
+        self.model_archive_dir = get_data_path("model_archive")
         try:
             os.makedirs(self.model_archive_dir, exist_ok=True)
-        except PermissionError:
-            print(f"Warning: Cannot create {self.model_archive_dir} - using current directory for archival")
-            self.model_archive_dir = "."
         except Exception as e:
             print(f"Warning: Failed to create archive directory: {e}")
             self.model_archive_dir = "."
-        
+            
     def load(self):
         if os.path.exists(self.model_path):
             try:
@@ -566,14 +587,13 @@ class SelfLearningManager:
     """Manages self-learning data collection and retraining"""
     
     def __init__(self, base_dir="self_learning_data"):
-        self.base_dir = base_dir
-        self.real_dir = os.path.join(base_dir, "real")
-        self.fake_dir = os.path.join(base_dir, "fake")
+        self.base_dir = get_data_path(base_dir)
+        self.real_dir = os.path.join(self.base_dir, "real")
+        self.fake_dir = os.path.join(self.base_dir, "fake")
         try:
             os.makedirs(self.real_dir, exist_ok=True)
             os.makedirs(self.fake_dir, exist_ok=True)
-        except PermissionError:
-            print(f"Warning: Cannot create self-learning directories - self-learning disabled")
+            print(f"✓ Self-learning directories ready: {self.base_dir}")
         except Exception as e:
             print(f"Warning: Failed to create self-learning directories: {e}")
         self.session_active = False
