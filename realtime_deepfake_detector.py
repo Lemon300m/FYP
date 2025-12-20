@@ -14,6 +14,8 @@ from datetime import datetime
 import json
 import shutil
 import sys
+import winreg
+from tray_handler import TrayHandler
 
 # For multi-monitor support
 try:
@@ -138,19 +140,20 @@ class SettingsWindow:
                   command=lambda: self._browse_dataset("fake")).pack(side=tk.LEFT)
         
         # Train button and progress
-        ttk.Button(section, text="🎯 Train New Model", 
-                  command=self._train_model).pack(fill=tk.X, pady=(0, 10))
-        
         self.train_progress_var = tk.DoubleVar()
         self.train_progress = ttk.Progressbar(section, variable=self.train_progress_var, 
                                              maximum=100, mode='determinate')
-        self.train_progress.pack(fill=tk.X)
+        
+        ttk.Button(section, text="🎯 Train New Model", 
+                  command=self._train_model).pack(fill=tk.X, pady=(0, 10))
+        self.train_progress.pack(fill=tk.X, pady=(0, 10))
+        
         ttk.Button(section, text="🔎 Test Current Model", 
-              command=self._test_model).pack(fill=tk.X, pady=(8, 10))
+              command=self._test_model).pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(section, text="ℹ️ Training may take several minutes depending on dataset size", 
                  font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(5, 0))
-        
+
     def _create_general_settings(self, parent):
         section = ttk.LabelFrame(parent, text="General Settings", padding="15")
         section.pack(fill=tk.X, pady=(0, 15))
@@ -160,6 +163,21 @@ class SettingsWindow:
                        variable=self.auto_start_var).pack(anchor=tk.W, pady=5)
         
         ttk.Label(section, text="ℹ️ Requires a trained model to be available", 
+                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 5))
+        
+        ttk.Separator(section, orient='horizontal').pack(fill=tk.X, pady=15)
+        
+        self.start_minimized_var = tk.BooleanVar(value=self.app.start_minimized_var.get())
+        ttk.Checkbutton(section, text="Start minimized to system tray",
+                       variable=self.start_minimized_var).pack(anchor=tk.W, pady=5)
+        
+        ttk.Separator(section, orient='horizontal').pack(fill=tk.X, pady=15)
+        
+        self.start_with_windows_var = tk.BooleanVar(value=self.app.start_with_windows_var.get())
+        ttk.Checkbutton(section, text="Start application with Windows",
+                       variable=self.start_with_windows_var).pack(anchor=tk.W, pady=5)
+        
+        ttk.Label(section, text="ℹ️ Application will auto-launch when you log in", 
                  font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 5))
     
     def _create_self_learning_settings(self, parent):
@@ -215,6 +233,31 @@ class SettingsWindow:
         fmt = f"{int(snapped)}{suffix}" if step >= 1 else f"{snapped:.1f}{suffix}"
         label.config(text=fmt)
     
+    def _update_windows_startup(self, enable):
+        """Add/remove application from Windows startup registry"""
+        try:
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            
+            app_name = "DeepfakeDetector"
+            if enable:
+                # Get the path to the current Python executable and script
+                exe_path = sys.executable
+                script_path = os.path.abspath(__file__)
+                full_command = f'"{exe_path}" "{script_path}"'
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, full_command)
+                self.app.log("✓ Application added to Windows startup")
+            else:
+                try:
+                    winreg.DeleteValue(key, app_name)
+                    self.app.log("✓ Application removed from Windows startup")
+                except WindowsError:
+                    pass
+            
+            winreg.CloseKey(key)
+        except Exception as e:
+            self.app.log(f"⚠ Error updating Windows startup: {e}")
+    
     def _browse_dataset(self, dataset_type):
         folder = filedialog.askdirectory(title=f"Select {dataset_type.capitalize()} Dataset Folder")
         if folder:
@@ -253,11 +296,19 @@ class SettingsWindow:
         self.app.min_samples_for_retrain = self.min_samples_var.get()
         self.app.real_path_var.set(self.real_path_var.get())
         self.app.fake_path_var.set(self.fake_path_var.get())
+        self.app.start_minimized_var.set(self.start_minimized_var.get())
+        
+        # Handle Windows startup registry
+        if self.start_with_windows_var.get() != self.app.start_with_windows_var.get():
+            self.app.start_with_windows_var.set(self.start_with_windows_var.get())
+            self._update_windows_startup(self.start_with_windows_var.get())
         
         self.app.log(f"Settings updated: Interval={self.interval_var.get():.1f}s, "
                     f"Threshold={self.threshold_var.get():.0f}%, "
                     f"Max No Face={self.max_no_face_var.get()}, "
                     f"Auto-start={self.auto_start_var.get()}, "
+                    f"Start Minimized={self.start_minimized_var.get()}, "
+                    f"Start with Windows={self.start_with_windows_var.get()}, "
                     f"Self-learning={self.enable_self_learning_var.get()}")
         
         self.app.save_config()
@@ -481,7 +532,6 @@ class DeepfakeModel:
                 progress = (idx + 1) / total * 100
                 if progress_var:
                     progress_var.set(progress * 0.5)
-                log_callback(f"Processing: {idx + 1}/{total}")
                 
         log_callback(f"Loaded {len(X)} valid samples from {os.path.basename(path)}")
         return X, y
@@ -622,6 +672,13 @@ class ScreenDeepfakeDetector:
         self.model = DeepfakeModel()
         self.self_learning = SelfLearningManager()
         self.screen_capture = ScreenCaptureManager()
+        # Tray handler (created but not started until needed)
+        try:
+            self.tray_handler = TrayHandler(app_name="Deepfake Detector",
+                                            show_callback=self._show_from_tray,
+                                            exit_callback=self._exit_from_tray)
+        except Exception:
+            self.tray_handler = None
         
         self.is_scanning = False
         self.current_frame = None
@@ -638,6 +695,8 @@ class ScreenDeepfakeDetector:
         self.interval_var = tk.DoubleVar(value=self.detection_interval)
         self.auto_start_var = tk.BooleanVar(value=sc.get('auto_start_scanning', False))
         self.enable_self_learning_var = tk.BooleanVar(value=sc.get('enable_self_learning', True))
+        self.start_minimized_var = tk.BooleanVar(value=sc.get('start_minimized', False))
+        self.start_with_windows_var = tk.BooleanVar(value=sc.get('start_with_windows', False))
         self.real_path_var = tk.StringVar()
         self.fake_path_var = tk.StringVar()
         
@@ -656,7 +715,16 @@ class ScreenDeepfakeDetector:
             self.root.after(500, self.start_scanning)
             self.log("Auto-start enabled: Scanning will begin automatically")
         
+        # Start minimized if configured
+        if self.start_minimized_var.get():
+            self.root.after(100, self._hide_to_tray)
+        
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        # When minimized to taskbar, hide to system tray
+        try:
+            self.root.bind('<Unmap>', self._on_minimize)
+        except Exception:
+            pass
         
     def setup_ui(self):
         main_frame = ttk.Frame(self.root, padding="10")
@@ -806,7 +874,9 @@ class ScreenDeepfakeDetector:
                 "confidence_threshold": self.threshold_var.get(),
                 "auto_start_scanning": self.auto_start_var.get(),
                 "enable_self_learning": self.enable_self_learning_var.get(),
-                "min_samples_for_retrain": self.min_samples_for_retrain
+                "min_samples_for_retrain": self.min_samples_for_retrain,
+                "start_minimized": self.start_minimized_var.get(),
+                "start_with_windows": self.start_with_windows_var.get()
             }
         }
         if self.config_manager.save(config):
@@ -850,11 +920,63 @@ class ScreenDeepfakeDetector:
             self.log(f"Invalid monitor selection: {selection}")
     
     def _on_closing(self):
+        # Exit the program completely
         if self.is_scanning:
             self.stop_scanning()
-        self.log("Saving configuration before exit...")
+        self.log("Closing application")
         self.save_config()
+        if self.tray_handler:
+            try:
+                self.tray_handler.stop()
+            except Exception:
+                pass
         self.root.destroy()
+
+    def _on_minimize(self, event=None):
+        try:
+            if str(self.root.state()) == 'iconic':
+                self.log("Minimized to taskbar — moving to system tray")
+                self._hide_to_tray()
+        except Exception:
+            pass
+
+    def _hide_to_tray(self):
+        try:
+            # Hide the window
+            self.root.withdraw()
+            # Start tray icon if available
+            if self.tray_handler:
+                self.tray_handler.start()
+            self.log("Application is running in background (system tray)")
+        except Exception as e:
+            self.log(f"Error hiding to tray: {e}")
+
+    def _show_from_tray(self):
+        try:
+            # Stop tray icon and show window
+            if self.tray_handler:
+                try:
+                    self.tray_handler.stop()
+                except Exception:
+                    pass
+            self.root.deiconify()
+            self.root.after(0, lambda: self.root.state('normal'))
+            self.log("Restored application from system tray")
+        except Exception as e:
+            self.log(f"Error showing from tray: {e}")
+
+    def _exit_from_tray(self):
+        try:
+            if self.tray_handler:
+                try:
+                    self.tray_handler.stop()
+                except Exception:
+                    pass
+            self.log("Exiting application from system tray")
+            self.save_config()
+            self.root.destroy()
+        except Exception as e:
+            self.log(f"Error exiting from tray: {e}")
     
     def start_scanning(self):
         if not self.model.model:
@@ -978,6 +1100,13 @@ class ScreenDeepfakeDetector:
             self.result_label.config(text="🚨 DEEPFAKE", foreground='red')
             self.confidence_label.config(text=f"Confidence: {conf:.1f}%")
             self.log(f"⚠ DEEPFAKE detected! Confidence: {conf:.1f}%")
+            # Send a Windows notification if tray handler available
+            try:
+                if self.tray_handler:
+                    self.tray_handler.notify(title="Deepfake detected",
+                                              message=f"Confidence: {conf:.1f}%")
+            except Exception:
+                pass
         else:
             self.result_label.config(text="✓ REAL", foreground='green')
             self.confidence_label.config(text=f"Confidence: {conf:.1f}%")
