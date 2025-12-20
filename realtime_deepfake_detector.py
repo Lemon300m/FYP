@@ -8,6 +8,11 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+try:
+    import mss
+    MSS_AVAILABLE = True
+except ImportError:
+    MSS_AVAILABLE = False
 import joblib
 import os
 from datetime import datetime
@@ -392,12 +397,31 @@ class DeepfakeModel:
     def __init__(self, model_path="deepfake_model.pkl"):
         self.model_path = model_path
         self.model = None
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
+        
+        # Load cascade classifier with fallback
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        
+        if self.face_cascade.empty():
+            # Try alternative path for PyInstaller bundle
+            alt_paths = [
+                os.path.join(os.path.dirname(__file__), 'cv2', 'data', 'haarcascade_frontalface_default.xml'),
+                'haarcascade_frontalface_default.xml'
+            ]
+            for alt_path in alt_paths:
+                if os.path.exists(alt_path):
+                    self.face_cascade = cv2.CascadeClassifier(alt_path)
+                    break
         
         self.model_archive_dir = "model_archive"
-        os.makedirs(self.model_archive_dir, exist_ok=True)
+        try:
+            os.makedirs(self.model_archive_dir, exist_ok=True)
+        except PermissionError:
+            print(f"Warning: Cannot create {self.model_archive_dir} - using current directory for archival")
+            self.model_archive_dir = "."
+        except Exception as e:
+            print(f"Warning: Failed to create archive directory: {e}")
+            self.model_archive_dir = "."
         
     def load(self):
         if os.path.exists(self.model_path):
@@ -425,6 +449,8 @@ class DeepfakeModel:
         return None
             
     def detect_faces(self, frame):
+        if self.face_cascade.empty():
+            return []
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return self.face_cascade.detectMultiScale(gray, 1.3, 5, minSize=(30, 30))
     
@@ -543,8 +569,13 @@ class SelfLearningManager:
         self.base_dir = base_dir
         self.real_dir = os.path.join(base_dir, "real")
         self.fake_dir = os.path.join(base_dir, "fake")
-        os.makedirs(self.real_dir, exist_ok=True)
-        os.makedirs(self.fake_dir, exist_ok=True)
+        try:
+            os.makedirs(self.real_dir, exist_ok=True)
+            os.makedirs(self.fake_dir, exist_ok=True)
+        except PermissionError:
+            print(f"Warning: Cannot create self-learning directories - self-learning disabled")
+        except Exception as e:
+            print(f"Warning: Failed to create self-learning directories: {e}")
         self.session_active = False
         self.session_samples = {'real': 0, 'fake': 0}
         
@@ -630,33 +661,58 @@ class ScreenCaptureManager:
         return False
     
     def capture(self):
-        """Capture screen using PIL ImageGrab"""
+        """Capture screen using mss (PyInstaller friendly) with PIL fallback"""
         try:
-            monitor = self.monitors[self.selected_monitor]
-            
-            # Capture screen
-            if monitor["bbox"] is None:
-                # Capture all screens
-                screenshot = ImageGrab.grab()
+            # Try mss first (works better with PyInstaller)
+            if MSS_AVAILABLE:
+                try:
+                    with mss.mss() as sct:
+                        monitor = self.monitors[self.selected_monitor]
+                        
+                        if monitor["bbox"] is None:
+                            # Capture primary monitor
+                            bbox = sct.monitors[1]
+                        else:
+                            bbox = monitor["bbox"]
+                        
+                        # Capture with mss
+                        screenshot = sct.grab(bbox)
+                        
+                        # Convert to numpy array
+                        img = np.array(screenshot)
+                        
+                        # mss returns BGRA, we need BGR
+                        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                        
+                        height, width = img.shape[:2]
+                        region_info = f"{width}x{height}"
+                        
+                        return img, region_info
+                except Exception as e:
+                    raise
             else:
-                # Capture specific monitor
-                screenshot = ImageGrab.grab(bbox=monitor["bbox"])
-            
-            # Convert PIL Image to numpy array (OpenCV format)
-            img = np.array(screenshot)
-            
-            # Convert RGB to BGR (OpenCV uses BGR)
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            
-            # Get dimensions
-            height, width = img.shape[:2]
-            region_info = f"{width}x{height}"
-            
-            return img, region_info
-            
+                raise ImportError("mss not available, falling back to PIL")
+                
         except Exception as e:
-            print(f"Screen capture error: {e}")
-            return None, None
+            # Fallback to PIL ImageGrab
+            try:
+                monitor = self.monitors[self.selected_monitor]
+                
+                if monitor["bbox"] is None:
+                    screenshot = ImageGrab.grab()
+                else:
+                    screenshot = ImageGrab.grab(bbox=monitor["bbox"])
+                
+                img = np.array(screenshot)
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                
+                height, width = img.shape[:2]
+                region_info = f"{width}x{height}"
+                
+                return img, region_info
+                
+            except Exception as e2:
+                return None, None
 
 class ScreenDeepfakeDetector:
     """Main application class"""
