@@ -32,8 +32,15 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def get_data_path(relative_path):
-    """Get path for data files (always use current working directory)"""
-    return os.path.abspath(relative_path)
+    """Get path for data files (always use executable/script directory)"""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable - use executable's directory
+        base_path = os.path.dirname(sys.executable)
+    else:
+        # Running as script - use script's directory
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    return os.path.join(base_path, relative_path)
 
 # For multi-monitor support
 try:
@@ -259,16 +266,19 @@ class SettingsWindow:
             
             app_name = "DeepfakeDetector"
             if enable:
-                # FIXED: Use the executable path if frozen, otherwise Python script
                 if getattr(sys, 'frozen', False):
                     # Running as compiled executable
                     exe_path = sys.executable
-                    full_command = f'"{exe_path}"'
+                    exe_dir = os.path.dirname(exe_path)
+                    # Use /d to set working directory
+                    full_command = f'cmd /c "cd /d "{exe_dir}" && start "" "{exe_path}""'
                 else:
                     # Running as Python script
                     exe_path = sys.executable
                     script_path = os.path.abspath(__file__)
-                    full_command = f'"{exe_path}" "{script_path}"'
+                    script_dir = os.path.dirname(script_path)
+                    full_command = f'cmd /c "cd /d "{script_dir}" && "{exe_path}" "{script_path}""'
+                
                 winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, full_command)
                 self.app.log("✓ Application added to Windows startup")
             else:
