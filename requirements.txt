@@ -1,0 +1,8 @@
+pystray
+Pillow
+win10toast
+numpy
+opencv-python
+scikit-learn
+joblib
+screeninfo
