@@ -1,6 +1,6 @@
 @echo off
 REM One-click PyInstaller compiler for Deepfake Detector
-REM Just double-click this file to build the executable
+REM Final output: DeepfakeDetector.exe in current folder only
 
 setlocal enabledelayedexpansion
 
@@ -10,153 +10,78 @@ echo  Deepfake Detector - One-Click Compiler
 echo ==========================================
 echo.
 
-REM Check if Python is installed
+REM Check Python
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo Error: Python is not installed or not in PATH
-    echo Please install Python and try again
     pause
     exit /b 1
 )
 
-echo ✓ Python found
-echo.
-
-REM Check if PyInstaller is installed
+REM Ensure PyInstaller
 python -m pip show pyinstaller >nul 2>&1
 if %errorlevel% neq 0 (
     echo Installing PyInstaller...
-    python -m pip install pyinstaller
-    if %errorlevel% neq 0 (
-        echo Error: Failed to install PyInstaller
-        pause
-        exit /b 1
-    )
+    python -m pip install pyinstaller || exit /b 1
 )
 
-echo ✓ PyInstaller ready
-echo.
-
-REM Install/update dependencies from requirements.txt
-echo Installing dependencies from requirements.txt...
+REM Install dependencies
 python -m pip install -r requirements.txt
-if %errorlevel% neq 0 (
-    echo Warning: Some dependencies may have failed to install
-)
-echo ✓ Dependencies ready
-echo.
 
-REM Extract Haar Cascade file from OpenCV
-echo Extracting Haar Cascade classifier...
-python -c "import cv2, shutil, os; src = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'; shutil.copy(src, 'haarcascade_frontalface_default.xml'); print(f'Copied to: {os.path.abspath(\"haarcascade_frontalface_default.xml\")}')"
-if %errorlevel% neq 0 (
-    echo Error: Failed to extract Haar Cascade file
-    pause
-    exit /b 1
-)
-echo ✓ Haar Cascade extracted
-echo.
+REM Extract Haar Cascade
+python -c "import cv2, shutil; shutil.copy(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml','haarcascade_frontalface_default.xml')" || exit /b 1
 
-REM Ask if user wants to clean old builds
-set /p CLEAN="Clean old builds? (y/n, default: n): "
-if /i "%CLEAN%"=="y" (
-    echo.
-    echo Cleaning old builds...
-    if exist build rmdir /s /q build
-    if exist dist rmdir /s /q dist
-    if exist __pycache__ rmdir /s /q __pycache__
-    echo ✓ Cleaned
-    echo.
-)
+REM ===== AUTO CLEAN (NO PROMPTS) =====
+echo Cleaning previous build artifacts...
+if exist build rmdir /s /q build
+if exist dist rmdir /s /q dist
+if exist __pycache__ rmdir /s /q __pycache__
+for %%f in (*.spec) do del /f /q "%%f"
 
-REM Build the executable
+REM ===== BUILD =====
 echo Building executable...
-echo.
-
 python -m PyInstaller ^
-    --name=DeepfakeDetector ^
+    --name DeepfakeDetector ^
     --onefile ^
     --windowed ^
-    --add-data="haarcascade_frontalface_default.xml;." ^
-    --hidden-import=cv2 ^
-    --hidden-import=numpy ^
-    --hidden-import=sklearn ^
-    --hidden-import=PIL ^
-    --hidden-import=pystray ^
-    --hidden-import=win10toast ^
-    --hidden-import=screeninfo ^
-    --hidden-import=mss ^
-    --distpath=dist ^
-    --workpath=build ^
-    --specpath=. ^
-    realtime_deepfake_detector.py
+    --add-data "haarcascade_frontalface_default.xml;." ^
+    --hidden-import cv2 ^
+    --hidden-import numpy ^
+    --hidden-import sklearn ^
+    --hidden-import PIL ^
+    --hidden-import pystray ^
+    --hidden-import win10toast ^
+    --hidden-import screeninfo ^
+    --hidden-import mss ^
+    realtime_deepfake_detector.py || goto :fail
 
-if %errorlevel% neq 0 (
-    echo.
-    echo ✖ Build failed!
-    pause
-    exit /b 1
-)
-
-echo.
-echo ==========================================
-echo  Setting up distribution folder...
-echo ==========================================
-echo.
-
-REM Create required directories in dist
-cd dist
-if not exist "self_learning_data\real" mkdir "self_learning_data\real"
-if not exist "self_learning_data\fake" mkdir "self_learning_data\fake"
-if not exist "model_archive" mkdir "model_archive"
-echo ✓ Created required directories
-
-REM Copy trained model if it exists
-if exist "..\deepfake_model.pkl" (
-    copy "..\deepfake_model.pkl" . >nul 2>&1
-    echo ✓ Copied trained model
+REM ===== MOVE EXE TO CURRENT FOLDER =====
+if exist "dist\DeepfakeDetector.exe" (
+    move /y "dist\DeepfakeDetector.exe" ".\" >nul
 ) else (
-    echo ⚠  No trained model found - you'll need to train one first
+    echo ERROR: Executable not found!
+    goto :fail
 )
 
-REM Copy config files if they exist
-if exist "..\config.json" (
-    copy "..\config.json" . >nul 2>&1
-    echo ✓ Copied config.json
-)
-
-if exist "..\default.json" (
-    copy "..\default.json" . >nul 2>&1
-    echo ✓ Copied default.json
-)
-
-cd ..
+REM ===== FINAL CLEANUP =====
+rmdir /s /q dist
+rmdir /s /q build
+for %%f in (*.spec) do del /f /q "%%f"
 
 echo.
 echo ==========================================
-echo  ✅ Build Complete!
+echo  ✅ BUILD SUCCESSFUL
 echo ==========================================
 echo.
-echo 📁 Executable location: dist\DeepfakeDetector.exe
-echo.
-echo 📦 Distribution folder contains:
-echo    • DeepfakeDetector.exe
-echo    • self_learning_data\ (folder)
-echo    • model_archive\ (folder)
-if exist "dist\deepfake_model.pkl" (
-    echo    • deepfake_model.pkl (trained model) ✓
-) else (
-    echo    • deepfake_model.pkl (MISSING - train a model first!)
-)
-echo.
-echo 💡 To distribute: Copy the entire 'dist' folder
-echo    All files and folders must stay together!
+echo Output: DeepfakeDetector.exe
 echo.
 
-set /p OPEN="Open dist folder? (y/n): "
-if /i "%OPEN%"=="y" (
-    start dist
-)
+pause
+exit /b 0
 
+:fail
+echo.
+echo ✖ BUILD FAILED
 echo.
 pause
+exit /b 1
