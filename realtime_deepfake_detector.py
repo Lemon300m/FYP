@@ -372,14 +372,17 @@ class ConfigManager:
     def get_defaults():
         return {
             "screen_capture": {
-                "detection_interval": 1.0,
+                "detection_interval": 3.0,
                 "selected_monitor": 0,
                 "no_face_count": 0,
                 "max_no_face_intervals": 5,
                 "confidence_threshold": 60.0,
                 "auto_start_scanning": False,
                 "enable_self_learning": True,
-                "min_samples_for_retrain": 20
+                "min_samples_for_retrain": 20,
+                "start_minimized": False,
+                "start_with_windows": False,
+                "selected_model": None
             }
         }
     
@@ -424,8 +427,14 @@ class DeepfakeModel:
     """Handles model training and prediction"""
     
     def __init__(self, model_path="deepfake_model.pkl"):
-        self.model_path = get_data_path(model_path)
+        self.model_archive_dir = get_data_path("model_archive")
         self.model = None
+        self.current_model_path = None  # Track which model is loaded
+        
+        try:
+            os.makedirs(self.model_archive_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Warning: Failed to create archive directory: {e}")
         
         self.face_cascade = None
     
@@ -453,19 +462,61 @@ class DeepfakeModel:
         except Exception as e:
             print(f"Warning: Failed to create archive directory: {e}")
             self.model_archive_dir = "."
-            
-    def load(self):
-        if os.path.exists(self.model_path):
-            try:
-                self.model = joblib.load(self.model_path)
-                return True
-            except Exception as e:
-                print(f"Error loading model: {e}")
-        return False
+
+    def get_available_models(self):
+        """Get list of available model files from model_archive directory"""
+        try:
+            models = []
+            for file in os.listdir(self.model_archive_dir):
+                if file.endswith('.pkl'):
+                    full_path = os.path.join(self.model_archive_dir, file)
+                    models.append({
+                        'name': file,
+                        'path': full_path,
+                        'mtime': os.path.getmtime(full_path),
+                        'size': os.path.getsize(full_path)
+                    })
+            # Sort by modification time (newest first)
+            models.sort(key=lambda x: x['mtime'], reverse=True)
+            return models
+        except Exception as e:
+            print(f"Error getting available models: {e}")
+            return []
     
-    def save(self):
+    def get_latest_model_path(self):
+        """Get path to the latest model in model_archive"""
+        models = self.get_available_models()
+        if models:
+            return models[0]['path']
+        return None
+            
+    def load(self, model_path=None):
+        """Load a specific model or the latest one"""
+        try:
+            if model_path is None:
+                model_path = self.get_latest_model_path()
+            
+            if model_path and os.path.exists(model_path):
+                self.model = joblib.load(model_path)
+                self.current_model_path = model_path
+                return True
+            return False
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            return False
+    
+    def save(self, filename=None):
+        """Save model to model_archive directory"""
         if self.model:
-            joblib.dump(self.model, self.model_path)
+            if filename is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"model_{timestamp}.pkl"
+            
+            save_path = os.path.join(self.model_archive_dir, filename)
+            joblib.dump(self.model, save_path)
+            self.current_model_path = save_path
+            return save_path
+        return None
     
     def archive_current_model(self):
         if os.path.exists(self.model_path):
@@ -527,10 +578,7 @@ class DeepfakeModel:
         progress_var = progress_callback if progress_callback else tk.DoubleVar()
         
         try:
-            if archive:
-                archive_path = self.archive_current_model()
-                if archive_path:
-                    log_callback(f"Current model archived to: {os.path.basename(archive_path)}")
+            # Models are automatically saved to model_archive with timestamps
             
             log_callback("Loading real images...")
             X_real, y_real = self._load_dataset(real_path, 0, progress_var, log_callback)
@@ -559,7 +607,10 @@ class DeepfakeModel:
             log_callback(f"Model accuracy: {accuracy:.4f}")
             progress_var.set(100)
             
-            self.save()
+            saved_path = self.save()
+            if saved_path:
+                log_callback(f"Model saved to: {os.path.basename(saved_path)}")
+            
             log_callback("✓ Training completed successfully!")
             return accuracy
             
@@ -758,6 +809,8 @@ class ScreenDeepfakeDetector:
         self.model = DeepfakeModel()
         self.self_learning = SelfLearningManager()
         self.screen_capture = ScreenCaptureManager()
+        sc = self.config['screen_capture']
+        self.selected_model_path = sc.get('selected_model', None)
         # Tray handler (created but not started until needed)
         try:
             self.tray_handler = TrayHandler(app_name="Deepfake Detector",
@@ -770,7 +823,6 @@ class ScreenDeepfakeDetector:
         self.current_frame = None
         self.last_detection_time = 0
         
-        sc = self.config['screen_capture']
         self.detection_interval = sc.get('detection_interval', 1.0)
         self.selected_monitor = sc.get('selected_monitor', 0)
         self.no_face_count = sc.get('no_face_count', 0)
@@ -860,6 +912,16 @@ class ScreenDeepfakeDetector:
         ttk.Button(controls, text="⚙️ Settings", 
                   command=lambda: SettingsWindow(self.root, self)).pack(side=tk.RIGHT, padx=5)
         
+        ttk.Label(controls, text="Model:").pack(side=tk.LEFT, padx=(20, 5))
+        self.model_var = tk.StringVar()
+        self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, 
+                                        width=25, state='readonly')
+        self.model_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.model_combo.bind('<<ComboboxSelected>>', self._on_model_change)
+        
+        ttk.Button(controls, text="🔄", command=self._refresh_model_list, 
+                width=3).pack(side=tk.LEFT)
+
         video_frame = ttk.LabelFrame(left_frame, text="Screen Capture Feed", padding="5")
         video_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         video_frame.rowconfigure(0, weight=1)
@@ -962,7 +1024,8 @@ class ScreenDeepfakeDetector:
                 "enable_self_learning": self.enable_self_learning_var.get(),
                 "min_samples_for_retrain": self.min_samples_for_retrain,
                 "start_minimized": self.start_minimized_var.get(),
-                "start_with_windows": self.start_with_windows_var.get()
+                "start_with_windows": self.start_with_windows_var.get(),
+                "selected_model": self.selected_model_path  # ADD THIS LINE
             }
         }
         if self.config_manager.save(config):
@@ -973,12 +1036,20 @@ class ScreenDeepfakeDetector:
             return False
     
     def _load_model(self):
-        if self.model.load():
-            self.model_status_var.set("Model loaded ✓")
-            self.log("Model loaded successfully")
+        """Load model on startup"""
+        # Try to load selected model from config, or latest
+        model_path = self.selected_model_path
+        
+        if self.model.load(model_path):
+            model_name = os.path.basename(self.model.current_model_path)
+            self.model_status_var.set(f"Model: {model_name[:30]}...")
+            self.log(f"Model loaded: {model_name}")
             self.status_var.set("Ready - Click 'Start Scanning'")
         else:
             self.log("No trained model found. Please train a model first.")
+        
+        # Populate model dropdown
+        self._refresh_model_list()
         self._update_learning_status()
     
     def _update_learning_status(self):
@@ -1251,6 +1322,7 @@ class ScreenDeepfakeDetector:
             if result:
                 self.log(f"✓ Retraining completed! New accuracy: {result:.4f}")
                 self.model_status_var.set("Model loaded ✓ (Retrained)")
+                self._refresh_model_list()  
                 self.self_learning.clear_data()
                 self._update_learning_status()
                 messagebox.showinfo("Retraining Complete", f"Model retrained successfully!\nNew accuracy: {result:.4f}")
@@ -1271,10 +1343,11 @@ class ScreenDeepfakeDetector:
             return
         self.status_var.set("Training in progress...")
         def train_thread():
-            result = self.model.train(real_path, fake_path, self.log, progress_callback, archive=True)
+            result = self.model.train(real_path, fake_path, self.log, progress_callback)
             if result:
                 self.model_status_var.set("Model loaded ✓")
                 self.status_var.set("Ready - Click 'Start Scanning'")
+                self._refresh_model_list()  # ADD THIS LINE
                 messagebox.showinfo("Success", f"Model trained successfully!\nAccuracy: {result:.4f}")
             else:
                 self.status_var.set("Training failed")
@@ -1304,6 +1377,53 @@ class ScreenDeepfakeDetector:
             self.log(f"✗ Testing error: {e}")
         finally:
             self.status_var.set("Ready")
+    def _refresh_model_list(self):
+        """Refresh the list of available models"""
+        models = self.model.get_available_models()
+        if models:
+            model_names = [m['name'] for m in models]
+            self.model_combo['values'] = model_names
+            
+            # Select current model or latest
+            if self.selected_model_path:
+                current_name = os.path.basename(self.selected_model_path)
+                if current_name in model_names:
+                    self.model_var.set(current_name)
+                else:
+                    self.model_var.set(model_names[0])
+            else:
+                self.model_var.set(model_names[0])
+            
+            self.log(f"Found {len(models)} model(s)")
+        else:
+            self.model_combo['values'] = ["No models available"]
+            self.model_var.set("No models available")
+            self.log("No models found in model_archive")
+
+    def _on_model_change(self, event=None):
+        """Handle model selection change"""
+        selected_name = self.model_var.get()
+        if selected_name and selected_name != "No models available":
+            model_path = os.path.join(self.model.model_archive_dir, selected_name)
+            if os.path.exists(model_path):
+                # Stop scanning if active
+                was_scanning = self.is_scanning
+                if was_scanning:
+                    self.stop_scanning()
+                
+                # Load new model
+                if self.model.load(model_path):
+                    self.selected_model_path = model_path
+                    self.model_status_var.set(f"Model: {selected_name[:30]}...")
+                    self.log(f"Switched to model: {selected_name}")
+                    self.save_config()
+                    
+                    # Resume scanning if it was active
+                    if was_scanning:
+                        self.root.after(500, self.start_scanning)
+                else:
+                    self.log(f"Failed to load model: {selected_name}")
+                    messagebox.showerror("Error", f"Failed to load model: {selected_name}")
 
 def main():
     root = tk.Tk()
