@@ -22,6 +22,29 @@ import sys
 import winreg
 from tray_handler import TrayHandler
 
+# Color scheme - Warm & Welcoming theme
+THEME_COLORS = {
+    # Backgrounds (warm & inviting)
+    'bg_dark': '#faf6f1',          # App background (warm cream)
+    'bg_light': '#ffffff',         # Panels / cards (pure white)
+
+    # Accents (warm & natural)
+    'accent_light': '#f5e6d3',     # Soft peach
+    'accent_medium': '#d4845c',    # Warm terracotta
+    'accent_dark': '#b85d3b',      # Deep warm brown
+
+    # Text (warm & readable)
+    'text_primary': '#3d2817',     # Warm dark brown
+    'text_secondary': '#8b7355',   # Warm medium brown
+
+    # Highlights & states
+    'highlight': '#d4845c',        # Warm terracotta highlight
+    'success': '#5a9d6e',          # Natural green
+    'warning': '#d4845c',          # Warm terracotta
+    'error': '#a85a47',            # Warm rust red
+}
+
+
 def get_resource_path(relative_path):
     """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
@@ -59,6 +82,7 @@ class SettingsWindow:
         self.window.geometry("600x750")
         self.window.resizable(False, False)
         self.app = app
+        self.window.configure(bg=THEME_COLORS['bg_dark'])
         
         # Make window modal
         self.window.transient(parent)
@@ -71,7 +95,9 @@ class SettingsWindow:
         main_container = ttk.Frame(self.window)
         main_container.pack(fill=tk.BOTH, expand=True)
         
-        canvas = tk.Canvas(main_container, highlightthickness=0)
+        canvas = tk.Canvas(main_container, highlightthickness=0, 
+                          background=THEME_COLORS['bg_light'],
+                          highlightbackground=THEME_COLORS['accent_dark'])
         scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -90,7 +116,7 @@ class SettingsWindow:
         
         # Title
         ttk.Label(main_frame, text="⚙️ Settings & Configuration", 
-                  font=('Arial', 16, 'bold')).pack(pady=(0, 20))
+                  font=('Consolas', 16, 'bold')).pack(pady=(0, 20))
         
         # Detection Settings
         self._create_detection_settings(main_frame)
@@ -138,11 +164,11 @@ class SettingsWindow:
         section.pack(fill=tk.X, pady=(0, 15))
         
         ttk.Label(section, text="Train a new deepfake detection model", 
-                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 15))
+                 font=('Consolas', 9), foreground=THEME_COLORS['text_secondary']).pack(anchor=tk.W, pady=(0, 15))
         
         # Real Dataset
         ttk.Label(section, text="Real Images Dataset:", 
-                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+                 font=('Consolas', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
         
         real_frame = ttk.Frame(section)
         real_frame.pack(fill=tk.X, pady=(0, 15))
@@ -154,7 +180,7 @@ class SettingsWindow:
         
         # Fake Dataset
         ttk.Label(section, text="Fake Images Dataset:", 
-                 font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+                 font=('Consolas', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
         
         fake_frame = ttk.Frame(section)
         fake_frame.pack(fill=tk.X, pady=(0, 15))
@@ -164,20 +190,41 @@ class SettingsWindow:
         ttk.Button(fake_frame, text="📁 Browse", 
                   command=lambda: self._browse_dataset("fake")).pack(side=tk.LEFT)
         
+        # Balance Dataset Checkbox
+        self.balance_dataset_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(section, text="Balance dataset (match sizes of real and fake folders)",
+                       variable=self.balance_dataset_var).pack(anchor=tk.W, pady=(0, 15))
+        
+        ttk.Label(section, text="ℹ️ Equalize number of samples", 
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 15))
+        
         # Train button and progress
         self.train_progress_var = tk.DoubleVar()
-        self.train_progress = ttk.Progressbar(section, variable=self.train_progress_var, 
-                                             maximum=100, mode='determinate')
+        self.train_progress_label_var = tk.StringVar(value="0%")
         
         ttk.Button(section, text="🎯 Train New Model", 
                   command=self._train_model).pack(fill=tk.X, pady=(0, 10))
-        self.train_progress.pack(fill=tk.X, pady=(0, 10))
+        
+        # Progress bar with percentage label
+        progress_frame = ttk.Frame(section)
+        progress_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.train_progress = ttk.Progressbar(progress_frame, variable=self.train_progress_var, 
+                                             maximum=100, mode='determinate')
+        self.train_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        progress_label = ttk.Label(progress_frame, textvariable=self.train_progress_label_var, 
+                                  font=('Consolas', 10, 'bold'), width=5)
+        progress_label.pack(side=tk.RIGHT)
+        
+        # Bind progress var to update label
+        self.train_progress_var.trace('w', self._update_progress_label)
         
         ttk.Button(section, text="🔎 Test Current Model", 
               command=self._test_model).pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(section, text="ℹ️ Training may take several minutes depending on dataset size", 
-                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(5, 0))
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(5, 0))
 
     def _create_general_settings(self, parent):
         section = ttk.LabelFrame(parent, text="General Settings", padding="15")
@@ -188,22 +235,18 @@ class SettingsWindow:
                        variable=self.auto_start_var).pack(anchor=tk.W, pady=5)
         
         ttk.Label(section, text="ℹ️ Requires a trained model to be available", 
-                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 5))
-        
-        ttk.Separator(section, orient='horizontal').pack(fill=tk.X, pady=15)
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 5))
         
         self.start_minimized_var = tk.BooleanVar(value=self.app.start_minimized_var.get())
         ttk.Checkbutton(section, text="Start minimized to system tray",
                        variable=self.start_minimized_var).pack(anchor=tk.W, pady=5)
-        
-        ttk.Separator(section, orient='horizontal').pack(fill=tk.X, pady=15)
         
         self.start_with_windows_var = tk.BooleanVar(value=self.app.start_with_windows_var.get())
         ttk.Checkbutton(section, text="Start application with Windows",
                        variable=self.start_with_windows_var).pack(anchor=tk.W, pady=5)
         
         ttk.Label(section, text="ℹ️ Application will auto-launch when you log in", 
-                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 5))
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 5))
     
     def _create_self_learning_settings(self, parent):
         section = ttk.LabelFrame(parent, text="Self-Learning Settings", padding="15")
@@ -214,7 +257,7 @@ class SettingsWindow:
                        variable=self.enable_self_learning_var).pack(anchor=tk.W, pady=5)
         
         ttk.Label(section, text="ℹ️ Model will retrain using classified images after each detection session", 
-                 font=('Arial', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 10))
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 10))
         
         # Minimum samples for retraining
         self.min_samples_var = tk.IntVar(value=self.app.min_samples_for_retrain)
@@ -235,8 +278,8 @@ class SettingsWindow:
         
     def _create_slider(self, parent, title, desc, var, from_, to, step, suffix, warning):
         """Helper to create slider control"""
-        ttk.Label(parent, text=title, font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Label(parent, text=desc, font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(parent, text=title, font=('Consolas', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(parent, text=desc, font=('Consolas', 9), foreground=THEME_COLORS['text_secondary']).pack(anchor=tk.W, pady=(0, 5))
         
         slider_frame = ttk.Frame(parent)
         slider_frame.pack(fill=tk.X, pady=(0, 15))
@@ -248,7 +291,7 @@ class SettingsWindow:
         label = ttk.Label(slider_frame, text=f"{var.get()}{suffix}", width=6)
         label.pack(side=tk.LEFT, padx=(10, 0))
         
-        ttk.Label(parent, text=warning, font=('Arial', 8), foreground='orange').pack(anchor=tk.W)
+        ttk.Label(parent, text=warning, font=('Consolas', 8), foreground=THEME_COLORS['warning']).pack(anchor=tk.W)
         return label
     
     def _snap_slider(self, var, label, step, suffix):
@@ -257,6 +300,11 @@ class SettingsWindow:
         var.set(snapped)
         fmt = f"{int(snapped)}{suffix}" if step >= 1 else f"{snapped:.1f}{suffix}"
         label.config(text=fmt)
+    
+    def _update_progress_label(self, *args):
+        """Update the progress percentage label in real-time"""
+        progress = self.train_progress_var.get()
+        self.train_progress_label_var.set(f"{int(progress)}%")
     
     def _update_windows_startup(self, enable):
         """Add/remove application from Windows startup registry"""
@@ -308,7 +356,7 @@ class SettingsWindow:
         
         self.app.real_path_var.set(self.real_path_var.get())
         self.app.fake_path_var.set(self.fake_path_var.get())
-        self.app.train_model(progress_callback=self.train_progress_var)
+        self.app.train_model(progress_callback=self.train_progress_var, balance_dataset=self.balance_dataset_var.get())
         
     def _reset_defaults(self):
         defaults = self.app.load_default_config()
@@ -540,21 +588,22 @@ class DeepfakeModel:
         if img is None or img.size == 0:
             return None
         
-        img = cv2.resize(img, (128, 128))
+        img = cv2.resize(img, (96, 96))  # Reduced from 128x128 for faster processing
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         features = []
         
+        # Faster histogram with 4 bins instead of 8
         for i in range(3):
-            features.extend(cv2.calcHist([img], [i], None, [8], [0, 256]).flatten())
+            hist = cv2.calcHist([img], [i], None, [4], [0, 256])
+            features.extend(hist.flatten())
         
+        # Laplacian variance for texture
         laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-        edges = cv2.Canny(gray, 100, 200)
-        for arr in [laplacian, edges]:
-            features.extend([arr.mean(), arr.std()])
-        features.append(laplacian.var())
+        features.extend([laplacian.mean(), laplacian.std(), laplacian.var()])
         
-        dct = cv2.dct(np.float32(gray))
-        features.extend([dct.mean(), dct.std(), dct.var()])
+        # Edge detection stats
+        edges = cv2.Canny(gray, 100, 200)
+        features.extend([edges.mean(), edges.std()])
         
         return np.array(features)
     
@@ -573,17 +622,25 @@ class DeepfakeModel:
         
         return {'prediction': prediction, 'confidence': confidence}
     
-    def train(self, real_path, fake_path, log_callback, progress_callback=None, archive=True):
+    def train(self, real_path, fake_path, log_callback, progress_callback=None, balance_dataset=False, archive=True):
         log_callback("Starting model training...")
         progress_var = progress_callback if progress_callback else tk.DoubleVar()
         
         try:
             # Models are automatically saved to model_archive with timestamps
             
+            # If balancing is enabled, pre-calculate target sample count
+            target_samples = None
+            if balance_dataset:
+                real_files = [f for f in os.listdir(real_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+                fake_files = [f for f in os.listdir(fake_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+                target_samples = min(len(real_files), len(fake_files))
+                log_callback(f"Balance enabled: Will load {target_samples} samples from each class")
+            
             log_callback("Loading real images...")
-            X_real, y_real = self._load_dataset(real_path, 0, progress_var, log_callback)
+            X_real, y_real = self._load_dataset(real_path, 0, progress_var, log_callback, balance_dataset, target_samples)
             log_callback("Loading fake images...")
-            X_fake, y_fake = self._load_dataset(fake_path, 1, progress_var, log_callback)
+            X_fake, y_fake = self._load_dataset(fake_path, 1, progress_var, log_callback, balance_dataset, target_samples)
             
             if not X_real or not X_fake:
                 log_callback("Error: No data loaded from datasets")
@@ -621,12 +678,19 @@ class DeepfakeModel:
             if progress_callback:
                 progress_var.set(0)
     
-    def _load_dataset(self, path, label, progress_var, log_callback):
+    def _load_dataset(self, path, label, progress_var, log_callback, balance_dataset=False, target_samples=None):
+        import random
         X, y = [], []
         files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
         total = len(files)
         
         log_callback(f"Found {total} images in {os.path.basename(path)} dataset")
+        
+        # If balancing is enabled and target_samples is set, randomly select files to load
+        if balance_dataset and target_samples is not None and total > target_samples:
+            log_callback(f"Randomly selecting {target_samples} files from {total} available")
+            files = random.sample(files, target_samples)
+            total = len(files)
         
         for idx, file in enumerate(files):
             img = cv2.imread(os.path.join(path, file))
@@ -801,8 +865,9 @@ class ScreenDeepfakeDetector:
     def __init__(self, root):
         self.root = root
         self.root.title("Screen Deepfake Detection System - Self-Learning Edition")
-        self.root.geometry("1200x850")
+        self.root.geometry("675x700")
         self.root.resizable(True, True)
+        self._setup_theme()
         
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
@@ -846,6 +911,19 @@ class ScreenDeepfakeDetector:
         self.total_scans = 0
         self.deepfakes_detected = 0
         
+        self.log_expanded = False
+        self.log_window = None
+        self.log_buffer = []  # Buffer to store log messages when window is closed
+        
+        # Initialize learning status variables (used by separate window)
+        self.learning_status_var = tk.StringVar(value="Yes" if self.enable_self_learning_var.get() else "No")
+        self.samples_count_var = tk.StringVar(value="Real: 0 | Fake: 0")
+        
+        # Model status variable (tracked internally, not displayed in main window)
+        self.model_status_var = tk.StringVar(value="No model loaded")
+        self.faces_count_var = tk.StringVar(value="0")
+        self.region_var = tk.StringVar(value="Not capturing")
+        
         self.setup_ui()
         self._load_model()
         
@@ -863,64 +941,126 @@ class ScreenDeepfakeDetector:
             self.root.bind('<Unmap>', self._on_minimize)
         except Exception:
             pass
+    
+    def _setup_theme(self):
+        """Configure the theme with bluish-purple colors"""
+        style = ttk.Style()
+        
+        # Configure colors
+        bg = THEME_COLORS['bg_dark']
+        fg = THEME_COLORS['text_primary']
+        accent = THEME_COLORS['accent_medium']
+        light_accent = THEME_COLORS['highlight']
+        
+        # Root window background
+        self.root.configure(bg=bg)
+        
+        # TkDefaultFont colors
+        style.theme_use('clam')
+        
+        # Configure main frame
+        style.configure('TFrame', background=bg)
+        style.configure('TLabel', background=bg, foreground=fg)
+        style.configure('TLabelframe', background=bg, foreground=fg, borderwidth=1)
+        style.configure('TLabelframe.Label', background=bg, foreground=light_accent)
+        
+        # Configure buttons
+        style.configure('TButton', background=THEME_COLORS['accent_light'], 
+                       foreground=fg, padding=8, borderwidth=1)
+        style.map('TButton',
+                 foreground=[('active', THEME_COLORS['text_primary']),
+                           ('pressed', THEME_COLORS['text_secondary']),
+                           ('disabled', THEME_COLORS['text_secondary'])],
+                 background=[('active', THEME_COLORS['highlight']),
+                           ('pressed', THEME_COLORS['accent_dark']),
+                           ('disabled', THEME_COLORS['accent_dark'])])
+        
+        # Accent button style for primary actions
+        style.configure('Accent.TButton', background=THEME_COLORS['highlight'],
+                       foreground=fg, padding=8, borderwidth=1)
+        style.map('Accent.TButton',
+                 foreground=[('active', THEME_COLORS['text_primary']),
+                           ('pressed', THEME_COLORS['text_secondary']),
+                           ('disabled', THEME_COLORS['text_secondary'])],
+                 background=[('active', THEME_COLORS['success']),
+                           ('pressed', THEME_COLORS['accent_dark']),
+                           ('disabled', THEME_COLORS['accent_dark'])])
+        
+        # Configure comboboxes
+        style.configure('TCombobox', fieldbackground=THEME_COLORS['accent_light'],
+                       background=THEME_COLORS['accent_light'], foreground=fg)
+        style.map('TCombobox',
+                 fieldbackground=[('readonly', THEME_COLORS['accent_light']),
+                                ('active', THEME_COLORS['highlight']),
+                                ('focus', THEME_COLORS['highlight'])],
+                 background=[('readonly', THEME_COLORS['accent_light']),
+                           ('active', THEME_COLORS['highlight']),
+                           ('focus', THEME_COLORS['highlight'])])
+        
+        # Configure scrollbars
+        style.configure('Vertical.TScrollbar', background=THEME_COLORS['accent_light'],
+                       troughcolor=THEME_COLORS['bg_light'], bordercolor=THEME_COLORS['accent_dark'],
+                       arrowcolor=fg)
+        
+        # Custom style for status label
+        style.configure('Status.TLabel', background=bg, foreground=THEME_COLORS['text_secondary'],
+                       font=('Consolas', 9))
+
         
     def setup_ui(self):
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=3)
-        main_frame.columnconfigure(1, weight=2)
+        main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(1, weight=1)
         
         ttk.Label(main_frame, text="🖥️ Screen Deepfake Detection System", 
-                  font=('Arial', 18, 'bold')).grid(row=0, column=0, columnspan=2, pady=10)
+                  font=('Consolas', 18, 'bold')).grid(row=0, column=0, columnspan=1, pady=10)
         
         self._setup_left_column(main_frame)
-        self._setup_right_column(main_frame)
+        self._setup_bottom_panel(main_frame)
         
         self.status_var = tk.StringVar(value="Ready - Train a model to begin")
         ttk.Label(main_frame, textvariable=self.status_var, 
-                  relief=tk.SUNKEN, anchor=tk.W).grid(row=2, column=0, columnspan=2, 
+                  relief=tk.SUNKEN, anchor=tk.W, style='Status.TLabel').grid(row=3, column=0, 
                                                       sticky=(tk.W, tk.E), pady=(10, 0))
     
     def _setup_left_column(self, parent):
         left_frame = ttk.Frame(parent)
-        left_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        left_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         left_frame.rowconfigure(1, weight=1)
         left_frame.columnconfigure(0, weight=1)
         
         controls = ttk.Frame(left_frame)
         controls.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        controls.columnconfigure(1, weight=1)  # Make model selector expandable
         
-        self.start_button = ttk.Button(controls, text="▶ Start Scanning", 
-                                       command=self.start_scanning, style='Accent.TButton')
-        self.start_button.pack(side=tk.LEFT, padx=5)
+        self.start_button = ttk.Button(controls, text="▶", 
+                                       command=self.start_scanning, style='Accent.TButton', width=3)
+        self.start_button.pack(side=tk.LEFT, padx=2)
+        self._create_tooltip(self.start_button, "Start Scanning")
         
-        self.stop_button = ttk.Button(controls, text="⏹ Stop Scanning", 
-                                      command=self.stop_scanning, state='disabled')
-        self.stop_button.pack(side=tk.LEFT, padx=5)
+        self.stop_button = ttk.Button(controls, text="⏹", 
+                                      command=self.stop_scanning, state='disabled', width=3)
+        self.stop_button.pack(side=tk.LEFT, padx=2)
+        self._create_tooltip(self.stop_button, "Stop Scanning")
         
-        ttk.Label(controls, text="Monitor:").pack(side=tk.LEFT, padx=(20, 5))
-        self.monitor_var = tk.StringVar(value="All Screens")
-        monitor_options = self.screen_capture.get_monitor_names()
-        monitor_combo = ttk.Combobox(controls, textvariable=self.monitor_var, 
-                                    values=monitor_options, width=15, state='readonly')
-        monitor_combo.pack(side=tk.LEFT)
-        monitor_combo.bind('<<ComboboxSelected>>', self._on_monitor_change)
-        
-        ttk.Button(controls, text="⚙️ Settings", 
-                  command=lambda: SettingsWindow(self.root, self)).pack(side=tk.RIGHT, padx=5)
-        
-        ttk.Label(controls, text="Model:").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(controls, text="Model:").pack(side=tk.LEFT, padx=(15, 5))
         self.model_var = tk.StringVar()
         self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, 
-                                        width=25, state='readonly')
-        self.model_combo.pack(side=tk.LEFT, padx=(0, 10))
+                                        width=20, state='readonly')
+        self.model_combo.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         self.model_combo.bind('<<ComboboxSelected>>', self._on_model_change)
         
         ttk.Button(controls, text="🔄", command=self._refresh_model_list, 
-                width=3).pack(side=tk.LEFT)
+                width=3).pack(side=tk.LEFT, padx=2)
+        self._create_tooltip(self.model_combo, "Select a trained model")
+        
+        settings_btn = ttk.Button(controls, text="⚙️", width=3,
+                                 command=lambda: SettingsWindow(self.root, self))
+        settings_btn.pack(side=tk.RIGHT, padx=2)
+        self._create_tooltip(settings_btn, "Settings")
 
         video_frame = ttk.LabelFrame(left_frame, text="Screen Capture Feed", padding="5")
         video_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -929,85 +1069,153 @@ class ScreenDeepfakeDetector:
         
         self.video_label = ttk.Label(video_frame, 
                                      text="Screen capture will appear here\n\nClick 'Start Scanning' to begin", 
-                                     background='black', foreground='white', font=('Arial', 14))
+                                     background=THEME_COLORS['bg_light'], 
+                                     foreground=THEME_COLORS['text_secondary'], 
+                                     font=('Consolas', 14))
         self.video_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         result_frame = ttk.Frame(left_frame)
         result_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         self.result_label = ttk.Label(result_frame, text="No Detection", 
-                                      font=('Arial', 24, 'bold'), foreground='gray')
+                                      font=('Consolas', 24, 'bold'), foreground='gray')
         self.result_label.pack()
-        self.confidence_label = ttk.Label(result_frame, text="", font=('Arial', 14))
+        self.confidence_label = ttk.Label(result_frame, text="", font=('Consolas', 14))
         self.confidence_label.pack()
         
         self.stats_label = ttk.Label(left_frame, text="Scans: 0 | Deepfakes: 0 | Real: 0", 
-                                     font=('Arial', 10), foreground='blue')
+                                     font=('Consolas', 10), foreground=THEME_COLORS['success'])
         self.stats_label.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
     
-    def _setup_right_column(self, parent):
-        right_frame = ttk.Frame(parent)
-        right_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
-        right_frame.rowconfigure(3, weight=1)
-        right_frame.columnconfigure(0, weight=1)
+    def _create_tooltip(self, widget, text):
+        """Create a tooltip that appears on hover"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            label = tk.Label(tooltip, text=text, background=THEME_COLORS['accent_medium'],
+                           foreground=THEME_COLORS['text_primary'], 
+                           relief=tk.SOLID, borderwidth=1, font=('Consolas', 9))
+            label.pack(padx=4, pady=2)
+            widget.tooltip = tooltip
+            
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                
+        widget.bind('<Enter>', on_enter)
+        widget.bind('<Leave>', on_leave)
+    
+    def _setup_bottom_panel(self, parent):
+        """Setup bottom quick action buttons"""
+        bottom_frame = ttk.Frame(parent)
+        bottom_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
-        status_frame = ttk.LabelFrame(right_frame, text="Model Status", padding="10")
-        status_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        status_frame.columnconfigure(1, weight=1)
+        ttk.Label(bottom_frame, text="Quick Actions:", font=('Consolas', 9)).pack(side=tk.LEFT, padx=5)
         
-        ttk.Label(status_frame, text="Status:").grid(row=0, column=0, sticky=tk.W)
-        self.model_status_var = tk.StringVar(value="No model loaded")
-        ttk.Label(status_frame, textvariable=self.model_status_var, 
-                 foreground='orange').grid(row=0, column=1, sticky=tk.W, padx=(5, 0))
+        # Save screenshot button
+        screenshot_btn = ttk.Button(bottom_frame, text="📸", width=3,
+                                   command=self._save_screenshot)
+        screenshot_btn.pack(side=tk.LEFT, padx=2)
+        self._create_tooltip(screenshot_btn, "Save Screenshot")
         
-        ttk.Label(status_frame, text="Faces Detected:").grid(row=1, column=0, sticky=tk.W)
-        self.faces_count_var = tk.StringVar(value="0")
-        ttk.Label(status_frame, textvariable=self.faces_count_var).grid(row=1, column=1, 
-                                                                        sticky=tk.W, padx=(5, 0))
+        # Reset statistics button
+        reset_btn = ttk.Button(bottom_frame, text="↻", width=3,
+                              command=self._reset_statistics)
+        reset_btn.pack(side=tk.LEFT, padx=2)
+        self._create_tooltip(reset_btn, "Reset Statistics")
         
-        ttk.Label(status_frame, text="Screen Region:").grid(row=2, column=0, sticky=tk.W)
-        self.region_var = tk.StringVar(value="Not capturing")
-        ttk.Label(status_frame, textvariable=self.region_var, 
-                 font=('Arial', 8)).grid(row=2, column=1, sticky=tk.W, padx=(5, 0))
+        # Activity log button
+        log_btn = ttk.Button(bottom_frame, text="📋", width=3,
+                            command=self._toggle_log_window)
+        log_btn.pack(side=tk.LEFT, padx=2)
+        self._create_tooltip(log_btn, "Activity Log")
+                
+        # Monitor selection
+        ttk.Label(bottom_frame, text="Monitor:").pack(side=tk.LEFT, padx=(10, 5))
+        self.monitor_var = tk.StringVar(value="All Screens")
+        monitor_options = self.screen_capture.get_monitor_names()
+        monitor_combo = ttk.Combobox(bottom_frame, textvariable=self.monitor_var, 
+                                    values=monitor_options, width=15, state='readonly')
+        monitor_combo.pack(side=tk.LEFT, padx=(0, 10))
+        monitor_combo.bind('<<ComboboxSelected>>', self._on_monitor_change)
+            
+    def _show_learning_window(self):
+        """Show self-learning status in a separate window"""
+        window = Toplevel(self.root)
+        window.title("Self-Learning Status")
+        window.geometry("400x300")
+        window.resizable(False, False)
+        window.transient(self.root)
         
-        learning_frame = ttk.LabelFrame(right_frame, text="Self-Learning Status", padding="10")
-        learning_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        learning_frame.columnconfigure(1, weight=1)
+        # Apply theme to window
+        window.configure(bg=THEME_COLORS['bg_dark'])
         
-        ttk.Label(learning_frame, text="Enabled:").grid(row=0, column=0, sticky=tk.W)
+        frame = ttk.Frame(window, padding="15")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="Self-Learning Status", 
+                 font=('Consolas', 14, 'bold')).pack(pady=(0, 10))
+        
+        ttk.Label(frame, text="Enabled:").pack(anchor=tk.W)
         self.learning_status_var = tk.StringVar(value="Yes" if self.enable_self_learning_var.get() else "No")
-        ttk.Label(learning_frame, textvariable=self.learning_status_var).grid(row=0, column=1, 
-                                                                              sticky=tk.W, padx=(5, 0))
+        ttk.Label(frame, textvariable=self.learning_status_var,
+                 font=('Consolas', 12)).pack(anchor=tk.W, padx=20)
         
-        ttk.Label(learning_frame, text="Collected Samples:").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(frame, text="Collected Samples:", font=('Consolas', 11)).pack(anchor=tk.W, pady=(15, 0))
         self.samples_count_var = tk.StringVar(value="Real: 0 | Fake: 0")
-        ttk.Label(learning_frame, textvariable=self.samples_count_var, 
-                 font=('Arial', 8)).grid(row=1, column=1, sticky=tk.W, padx=(5, 0))
+        ttk.Label(frame, textvariable=self.samples_count_var,
+                 font=('Consolas', 11)).pack(anchor=tk.W, padx=20)
         
-        ttk.Button(learning_frame, text="🗑️ Clear Training Data", 
-                  command=self._clear_training_data).grid(row=2, column=0, columnspan=2, 
-                                                          sticky=(tk.W, tk.E), pady=(5, 0))
+        ttk.Button(frame, text="🗑️ Clear Training Data", 
+                  command=self._clear_training_data).pack(fill=tk.X, pady=(20, 5))
         
-        actions_frame = ttk.LabelFrame(right_frame, text="Quick Actions", padding="10")
-        actions_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        ttk.Button(actions_frame, text="🔄 Reset Statistics", 
-                  command=self._reset_statistics).pack(fill=tk.X, pady=2)
-        ttk.Button(actions_frame, text="💾 Save Screenshot", 
-                  command=self._save_screenshot).pack(fill=tk.X, pady=2)
+        ttk.Button(frame, text="↻ Retrain with Collected Data",
+                  command=self._retrain_model).pack(fill=tk.X, pady=5)
         
-        log_frame = ttk.LabelFrame(right_frame, text="Activity Log", padding="5")
-        log_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        log_frame.rowconfigure(0, weight=1)
-        log_frame.columnconfigure(0, weight=1)
-        self.log_text = ScrolledText(log_frame, height=12, width=40, wrap=tk.WORD)
-        self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self._update_learning_status()
+    
+    def _toggle_log_window(self):
+        """Toggle activity log window"""
+        if self.log_window is None or not self.log_window.winfo_exists():
+            self.log_window = Toplevel(self.root)
+            self.log_window.title("Activity Log")
+            self.log_window.geometry("500x400")
+            self.log_window.resizable(True, True)
+            self.log_window.transient(self.root)
+            
+            # Apply theme
+            self.log_window.configure(bg=THEME_COLORS['bg_dark'])
+            
+            frame = ttk.Frame(self.log_window, padding="5")
+            frame.pack(fill=tk.BOTH, expand=True)
+            frame.rowconfigure(0, weight=1)
+            frame.columnconfigure(0, weight=1)
+            
+            self.log_text = ScrolledText(frame, wrap=tk.WORD, 
+                                        background=THEME_COLORS['bg_light'],
+                                        foreground=THEME_COLORS['text_primary'],
+                                        insertbackground=THEME_COLORS['text_primary'])
+            self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+            
+            for msg in self.log_buffer:
+                self.log_text.insert(tk.END, msg + "\n")
+            self.log_text.see(tk.END)
+            
+            self.log_expanded = True
+        else:
+            self.log_window.destroy()
+            self.log_expanded = False
     
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_msg = f"[{timestamp}] {message}"
         print(log_msg)
-        if hasattr(self, 'log_text'):
-            self.log_text.insert(tk.END, log_msg + "\n")
-            self.log_text.see(tk.END)
+        self.log_buffer.append(log_msg)
+        
+        if self.log_window is not None and self.log_window.winfo_exists():
+            if hasattr(self, 'log_text') and self.log_text.winfo_exists():
+                self.log_text.insert(tk.END, log_msg + "\n")
+                self.log_text.see(tk.END)
     
     def load_default_config(self):
         return self.config_manager.load_defaults()
@@ -1155,7 +1363,7 @@ class ScreenDeepfakeDetector:
         self.start_button.config(state='normal')
         self.stop_button.config(state='disabled')
         self.video_label.config(image='', text="Screen scanning stopped")
-        self.result_label.config(text="Scanning Stopped", foreground='gray')
+        self.result_label.config(text="Scanning Stopped", foreground=THEME_COLORS['text_secondary'])
         self.confidence_label.config(text="")
         self.region_var.set("Not capturing")
         self.no_face_count = 0
@@ -1216,11 +1424,31 @@ class ScreenDeepfakeDetector:
     def _display_frame(self, frame):
         h, w = frame.shape[:2]
         aspect_ratio = w / h
-        display_height = 480
-        display_width = int(display_height * aspect_ratio)
+        
+        # Get available space from the label widget
+        self.video_label.update_idletasks()
+        available_width = self.video_label.winfo_width()
+        available_height = self.video_label.winfo_height()
+        
+        # Use default if not yet rendered
+        if available_width <= 1:
+            available_width = 750
+        if available_height <= 1:
+            available_height = 420
+        
+        # Calculate dimensions that maintain aspect ratio and fit in available space
+        if available_width / available_height > aspect_ratio:
+            # Height is the limiting factor
+            display_height = available_height
+            display_width = int(display_height * aspect_ratio)
+        else:
+            # Width is the limiting factor
+            display_width = available_width
+            display_height = int(display_width / aspect_ratio)
+        
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(frame_rgb)
-        img = img.resize((min(display_width, 800), display_height), Image.Resampling.LANCZOS)
+        img = img.resize((display_width, display_height), Image.Resampling.LANCZOS)
         imgtk = ImageTk.PhotoImage(image=img)
         self.video_label.imgtk = imgtk
         self.video_label.configure(image=imgtk, text="")
@@ -1251,10 +1479,10 @@ class ScreenDeepfakeDetector:
         conf = result['confidence']
         threshold = self.threshold_var.get()
         if conf < threshold:
-            self.result_label.config(text="⚠ Uncertain", foreground='orange')
+            self.result_label.config(text="⚠ Uncertain", foreground=THEME_COLORS['warning'])
             self.confidence_label.config(text=f"Confidence too low: {conf:.1f}%")
         elif result['prediction'] == 1:
-            self.result_label.config(text="🚨 DEEPFAKE", foreground='red')
+            self.result_label.config(text="🚨 DEEPFAKE", foreground=THEME_COLORS['error'])
             self.confidence_label.config(text=f"Confidence: {conf:.1f}%")
             self.log(f"⚠ DEEPFAKE detected! Confidence: {conf:.1f}%")
             # Send a Windows notification if tray handler available
@@ -1265,11 +1493,11 @@ class ScreenDeepfakeDetector:
             except Exception:
                 pass
         else:
-            self.result_label.config(text="✓ REAL", foreground='green')
+            self.result_label.config(text="✓ REAL", foreground=THEME_COLORS['success'])
             self.confidence_label.config(text=f"Confidence: {conf:.1f}%")
     
     def _reset_detection_display(self):
-        self.result_label.config(text="No Detection", foreground='gray')
+        self.result_label.config(text="No Detection", foreground=THEME_COLORS['text_secondary'])
         self.confidence_label.config(text="")
         self.no_face_count = 0
         self.last_detection_result = None
@@ -1292,6 +1520,14 @@ class ScreenDeepfakeDetector:
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No screen capture available")
             return
+        
+        screenshot_dir = get_data_path("screenshot")
+        try:
+            os.makedirs(screenshot_dir, exist_ok=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to create screenshot folder: {e}")
+            return
+        
         annotated_frame = self.current_frame.copy()
         for (x, y, w, h) in self.last_detected_faces:
             cv2.rectangle(annotated_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
@@ -1303,9 +1539,10 @@ class ScreenDeepfakeDetector:
                 cv2.putText(annotated_frame, f"{result_text} {conf:.1f}%", (x, y+h+25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"screenshot_{timestamp}.png"
-        cv2.imwrite(filename, annotated_frame)
-        messagebox.showinfo("Success", f"Screenshot saved as {filename}")
-        self.log(f"Screenshot saved: {filename}")
+        filepath = os.path.join(screenshot_dir, filename)
+        cv2.imwrite(filepath, annotated_frame)
+        messagebox.showinfo("Success", f"Screenshot saved to screenshot/{filename}")
+        self.log(f"Screenshot saved: screenshot/{filename}")
     
     def _retrain_model(self):
         if self.is_retraining:
@@ -1335,7 +1572,7 @@ class ScreenDeepfakeDetector:
             self.status_var.set("Ready")
             self.log("=" * 50)
     
-    def train_model(self, progress_callback=None):
+    def train_model(self, progress_callback=None, balance_dataset=False):
         real_path = self.real_path_var.get()
         fake_path = self.fake_path_var.get()
         if not real_path or not fake_path:
@@ -1343,7 +1580,7 @@ class ScreenDeepfakeDetector:
             return
         self.status_var.set("Training in progress...")
         def train_thread():
-            result = self.model.train(real_path, fake_path, self.log, progress_callback)
+            result = self.model.train(real_path, fake_path, self.log, progress_callback, balance_dataset=balance_dataset)
             if result:
                 self.model_status_var.set("Model loaded ✓")
                 self.status_var.set("Ready - Click 'Start Scanning'")

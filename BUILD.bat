@@ -68,6 +68,25 @@ rmdir /s /q dist
 rmdir /s /q build
 for %%f in (*.spec) do del /f /q "%%f"
 
+REM Ask user if they want to delete source files
+echo.
+echo ==========================================
+echo  CLEANUP OPTIONS
+echo ==========================================
+set /p DeleteSource="Delete source files (keeping only .exe and models)? (y/n, default=n): "
+if /i "%DeleteSource%"=="y" (
+    echo Removing source files...
+    for %%f in (*.py) do del /f /q "%%f"
+    for %%f in (*.json) do del /f /q "%%f"
+    for %%f in (*.txt) do del /f /q "%%f"
+    for %%f in (*.md) do del /f /q "%%f"
+    for %%f in (*.bat) do del /f /q "%%f"
+    if exist __pycache__ rmdir /s /q __pycache__
+    if exist screenshot rmdir /s /q screenshot
+    if exist self_learning_data rmdir /s /q self_learning_data
+    echo Source files removed.
+)
+
 echo.
 echo ==========================================
 echo  ✅ BUILD SUCCESSFUL
