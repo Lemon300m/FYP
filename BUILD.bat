@@ -1,14 +1,14 @@
 @echo off
 REM One-click PyInstaller compiler for Deepfake Detector
-REM Final output: DeepfakeDetector.exe in current folder only
+REM Final output:  DeepfakeDetector.exe in current folder only
 
 setlocal enabledelayedexpansion
 
-echo.
+echo. 
 echo ==========================================
 echo  Deepfake Detector - One-Click Compiler
 echo ==========================================
-echo.
+echo. 
 
 REM Check Python
 python --version >nul 2>&1
@@ -26,7 +26,7 @@ if %errorlevel% neq 0 (
 )
 
 REM Install dependencies
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt || exit /b 1
 
 REM Extract Haar Cascade
 python -c "import cv2, shutil; shutil.copy(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml','haarcascade_frontalface_default.xml')" || exit /b 1
@@ -59,7 +59,7 @@ REM ===== MOVE EXE TO CURRENT FOLDER =====
 if exist "dist\DeepfakeDetector.exe" (
     move /y "dist\DeepfakeDetector.exe" ".\" >nul
 ) else (
-    echo ERROR: Executable not found!
+    echo ERROR: Executable not found! 
     goto :fail
 )
 
@@ -72,9 +72,9 @@ echo.
 echo ==========================================
 echo  ✅ BUILD SUCCESSFUL
 echo ==========================================
-echo.
+echo. 
 echo Output: DeepfakeDetector.exe
-echo.
+echo. 
 
 pause
 exit /b 0
@@ -82,6 +82,6 @@ exit /b 0
 :fail
 echo.
 echo ✖ BUILD FAILED
-echo.
+echo. 
 pause
 exit /b 1
