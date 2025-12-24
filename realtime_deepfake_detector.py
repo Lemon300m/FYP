@@ -5,7 +5,9 @@ import cv2
 from PIL import Image, ImageTk, ImageGrab
 import threading
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 try:
@@ -477,6 +479,7 @@ class DeepfakeModel:
     def __init__(self, model_path="deepfake_model.pkl"):
         self.model_archive_dir = get_data_path("model_archive")
         self.model = None
+        self.scaler_stats = None  # Store normalization statistics for predictions
         self.current_model_path = None  # Track which model is loaded
         
         try:
@@ -516,7 +519,7 @@ class DeepfakeModel:
         try:
             models = []
             for file in os.listdir(self.model_archive_dir):
-                if file.endswith('.pkl'):
+                if file. endswith('.h5') or file.endswith('.keras'):
                     full_path = os.path.join(self.model_archive_dir, file)
                     models.append({
                         'name': file,
@@ -540,16 +543,16 @@ class DeepfakeModel:
             
     def load(self, model_path=None):
         """Load a specific model or the latest one"""
-        try:
-            if model_path is None:
-                model_path = self.get_latest_model_path()
+        try: 
+            if model_path is None: 
+                model_path = self. get_latest_model_path()
             
             if model_path and os.path.exists(model_path):
-                self.model = joblib.load(model_path)
+                self.model = keras.models.load_model(model_path)  # TensorFlow load
                 self.current_model_path = model_path
                 return True
             return False
-        except Exception as e:
+        except Exception as e: 
             print(f"Error loading model: {e}")
             return False
     
@@ -558,10 +561,10 @@ class DeepfakeModel:
         if self.model:
             if filename is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"model_{timestamp}.pkl"
+                filename = f"model_{timestamp}.h5"
             
             save_path = os.path.join(self.model_archive_dir, filename)
-            joblib.dump(self.model, save_path)
+            self.model.save(save_path)  # TensorFlow save method
             self.current_model_path = save_path
             return save_path
         return None
@@ -588,13 +591,13 @@ class DeepfakeModel:
         if img is None or img.size == 0:
             return None
         
-        img = cv2.resize(img, (96, 96))  # Reduced from 128x128 for faster processing
+        img = cv2.resize(img, (128, 128))  # Reduced from 128x128 for faster processing
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         features = []
         
         # Faster histogram with 4 bins instead of 8
         for i in range(3):
-            hist = cv2.calcHist([img], [i], None, [4], [0, 256])
+            hist = cv2.calcHist([img], [i], None, [16], [0, 256])
             features.extend(hist.flatten())
         
         # Laplacian variance for texture
@@ -614,13 +617,54 @@ class DeepfakeModel:
         features = self.extract_features(face_img)
         if features is None:
             return None
+        try:
+            features = features.reshape(1, -1)
             
-        features = features.reshape(1, -1)
-        prediction = self.model.predict(features)[0]
-        probability = self.model.predict_proba(features)[0]
-        confidence = probability[prediction] * 100
+            # Normalize using stored statistics
+            if self.scaler_stats:
+                mean, std = self.scaler_stats
+                features = (features - mean) / (std + 1e-8)
+            
+            prediction = self.model.predict(features, verbose=0)
+            confidence = float(prediction[0][0]) * 100
+            predicted_class = 1 if confidence > 50 else 0
+            
+            return {
+                'prediction': predicted_class,
+                'confidence': confidence if predicted_class == 1 else 100 - confidence
+            }
+        except Exception as e:
+            print(f"Error during prediction: {e}")
+            return None
         
-        return {'prediction': prediction, 'confidence': confidence}
+    def _build_nn_model(self, input_size):
+        """Build neural network model architecture"""
+        model = keras.Sequential([
+            layers.Input(shape=(input_size,)),
+            
+            layers.Dense(512, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.4),
+            
+            layers.Dense(256, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.3),
+            
+            layers.Dense(128, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.3),
+            
+            layers.Dense(64, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.2),
+            
+            layers.Dense(32, activation='relu'),
+            layers.Dropout(0.2),
+            
+            layers.Dense(1, activation='sigmoid')
+        ])
+        
+        return model
     
     def train(self, real_path, fake_path, log_callback, progress_callback=None, balance_dataset=False, archive=True):
         log_callback("Starting model training...")
@@ -650,16 +694,47 @@ class DeepfakeModel:
             y = np.array(y_real + y_fake)
             log_callback(f"Total samples: {len(X)} (Real: {len(X_real)}, Fake: {len(X_fake)})")
             
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            
-            log_callback("Training Random Forest model...")
-            progress_var.set(60)
-            self.model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
-            self.model.fit(X_train, y_train)
-            
-            progress_var.set(90)
-            y_pred = self.model.predict(X_test)
-            accuracy = accuracy_score(y_test, y_pred)
+            # Normalize features
+            X_mean = X.mean(axis=0)
+            X_std = X.std(axis=0) + 1e-8
+            X_normalized = (X - X_mean) / X_std
+
+            # Store normalization statistics for prediction
+            self.scaler_stats = (X_mean, X_std)
+
+            X_train, X_test, y_train, y_test = train_test_split(X_normalized, y, test_size=0.2, random_state=42)
+
+            log_callback("Building Neural Network model...")
+            progress_var.set(40)
+
+            input_size = X_train.shape[1]
+            self.model = self._build_nn_model(input_size)
+
+            self.model.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=0.001),
+                loss='binary_crossentropy',
+                metrics=['accuracy']
+            )
+
+            log_callback("Training model (this may take a while)...")
+            progress_var.set(50)
+
+            history = self.model.fit(
+                X_train, y_train,
+                epochs=100,
+                batch_size=32,
+                validation_split=0.2,
+                verbose=0,
+                callbacks=[
+                    keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+                ]
+            )
+
+            progress_var.set(80)
+
+            y_pred = self.model. predict(X_test, verbose=0)
+            y_pred_binary = (y_pred > 0.5).astype(int).flatten()
+            accuracy = accuracy_score(y_test, y_pred_binary)
             
             log_callback(f"Model accuracy: {accuracy:.4f}")
             progress_var.set(100)
