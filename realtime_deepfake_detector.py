@@ -190,6 +190,14 @@ class SettingsWindow:
         ttk.Button(fake_frame, text="📁 Browse", 
                   command=lambda: self._browse_dataset("fake")).pack(side=tk.LEFT)
         
+        # Balance Dataset Checkbox
+        self.balance_dataset_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(section, text="Balance dataset (match sizes of real and fake folders)",
+                       variable=self.balance_dataset_var).pack(anchor=tk.W, pady=(0, 15))
+        
+        ttk.Label(section, text="ℹ️ Equalize number of samples", 
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 15))
+        
         # Train button and progress
         self.train_progress_var = tk.DoubleVar()
         self.train_progress_label_var = tk.StringVar(value="0%")
@@ -229,13 +237,9 @@ class SettingsWindow:
         ttk.Label(section, text="ℹ️ Requires a trained model to be available", 
                  font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 5))
         
-        ttk.Separator(section, orient='horizontal').pack(fill=tk.X, pady=15)
-        
         self.start_minimized_var = tk.BooleanVar(value=self.app.start_minimized_var.get())
         ttk.Checkbutton(section, text="Start minimized to system tray",
                        variable=self.start_minimized_var).pack(anchor=tk.W, pady=5)
-        
-        ttk.Separator(section, orient='horizontal').pack(fill=tk.X, pady=15)
         
         self.start_with_windows_var = tk.BooleanVar(value=self.app.start_with_windows_var.get())
         ttk.Checkbutton(section, text="Start application with Windows",
@@ -352,7 +356,7 @@ class SettingsWindow:
         
         self.app.real_path_var.set(self.real_path_var.get())
         self.app.fake_path_var.set(self.fake_path_var.get())
-        self.app.train_model(progress_callback=self.train_progress_var)
+        self.app.train_model(progress_callback=self.train_progress_var, balance_dataset=self.balance_dataset_var.get())
         
     def _reset_defaults(self):
         defaults = self.app.load_default_config()
@@ -584,21 +588,22 @@ class DeepfakeModel:
         if img is None or img.size == 0:
             return None
         
-        img = cv2.resize(img, (128, 128))
+        img = cv2.resize(img, (96, 96))  # Reduced from 128x128 for faster processing
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         features = []
         
+        # Faster histogram with 4 bins instead of 8
         for i in range(3):
-            features.extend(cv2.calcHist([img], [i], None, [8], [0, 256]).flatten())
+            hist = cv2.calcHist([img], [i], None, [4], [0, 256])
+            features.extend(hist.flatten())
         
+        # Laplacian variance for texture
         laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-        edges = cv2.Canny(gray, 100, 200)
-        for arr in [laplacian, edges]:
-            features.extend([arr.mean(), arr.std()])
-        features.append(laplacian.var())
+        features.extend([laplacian.mean(), laplacian.std(), laplacian.var()])
         
-        dct = cv2.dct(np.float32(gray))
-        features.extend([dct.mean(), dct.std(), dct.var()])
+        # Edge detection stats
+        edges = cv2.Canny(gray, 100, 200)
+        features.extend([edges.mean(), edges.std()])
         
         return np.array(features)
     
@@ -617,17 +622,25 @@ class DeepfakeModel:
         
         return {'prediction': prediction, 'confidence': confidence}
     
-    def train(self, real_path, fake_path, log_callback, progress_callback=None, archive=True):
+    def train(self, real_path, fake_path, log_callback, progress_callback=None, balance_dataset=False, archive=True):
         log_callback("Starting model training...")
         progress_var = progress_callback if progress_callback else tk.DoubleVar()
         
         try:
             # Models are automatically saved to model_archive with timestamps
             
+            # If balancing is enabled, pre-calculate target sample count
+            target_samples = None
+            if balance_dataset:
+                real_files = [f for f in os.listdir(real_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+                fake_files = [f for f in os.listdir(fake_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+                target_samples = min(len(real_files), len(fake_files))
+                log_callback(f"Balance enabled: Will load {target_samples} samples from each class")
+            
             log_callback("Loading real images...")
-            X_real, y_real = self._load_dataset(real_path, 0, progress_var, log_callback)
+            X_real, y_real = self._load_dataset(real_path, 0, progress_var, log_callback, balance_dataset, target_samples)
             log_callback("Loading fake images...")
-            X_fake, y_fake = self._load_dataset(fake_path, 1, progress_var, log_callback)
+            X_fake, y_fake = self._load_dataset(fake_path, 1, progress_var, log_callback, balance_dataset, target_samples)
             
             if not X_real or not X_fake:
                 log_callback("Error: No data loaded from datasets")
@@ -665,12 +678,19 @@ class DeepfakeModel:
             if progress_callback:
                 progress_var.set(0)
     
-    def _load_dataset(self, path, label, progress_var, log_callback):
+    def _load_dataset(self, path, label, progress_var, log_callback, balance_dataset=False, target_samples=None):
+        import random
         X, y = [], []
         files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
         total = len(files)
         
         log_callback(f"Found {total} images in {os.path.basename(path)} dataset")
+        
+        # If balancing is enabled and target_samples is set, randomly select files to load
+        if balance_dataset and target_samples is not None and total > target_samples:
+            log_callback(f"Randomly selecting {target_samples} files from {total} available")
+            files = random.sample(files, target_samples)
+            total = len(files)
         
         for idx, file in enumerate(files):
             img = cv2.imread(os.path.join(path, file))
@@ -1014,6 +1034,7 @@ class ScreenDeepfakeDetector:
         
         controls = ttk.Frame(left_frame)
         controls.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        controls.columnconfigure(1, weight=1)  # Make model selector expandable
         
         self.start_button = ttk.Button(controls, text="▶", 
                                        command=self.start_scanning, style='Accent.TButton', width=3)
@@ -1024,24 +1045,21 @@ class ScreenDeepfakeDetector:
                                       command=self.stop_scanning, state='disabled', width=3)
         self.stop_button.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(self.stop_button, "Stop Scanning")
-        ttk.Separator(controls, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
         
         ttk.Label(controls, text="Model:").pack(side=tk.LEFT, padx=(15, 5))
         self.model_var = tk.StringVar()
         self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, 
                                         width=20, state='readonly')
-        self.model_combo.pack(side=tk.LEFT, padx=(0, 5))
+        self.model_combo.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         self.model_combo.bind('<<ComboboxSelected>>', self._on_model_change)
         
         ttk.Button(controls, text="🔄", command=self._refresh_model_list, 
                 width=3).pack(side=tk.LEFT, padx=2)
         self._create_tooltip(self.model_combo, "Select a trained model")
         
-        ttk.Separator(controls, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
-        
         settings_btn = ttk.Button(controls, text="⚙️", width=3,
                                  command=lambda: SettingsWindow(self.root, self))
-        settings_btn.pack(side=tk.LEFT, padx=2)
+        settings_btn.pack(side=tk.RIGHT, padx=2)
         self._create_tooltip(settings_btn, "Settings")
 
         video_frame = ttk.LabelFrame(left_frame, text="Screen Capture Feed", padding="5")
@@ -1554,7 +1572,7 @@ class ScreenDeepfakeDetector:
             self.status_var.set("Ready")
             self.log("=" * 50)
     
-    def train_model(self, progress_callback=None):
+    def train_model(self, progress_callback=None, balance_dataset=False):
         real_path = self.real_path_var.get()
         fake_path = self.fake_path_var.get()
         if not real_path or not fake_path:
@@ -1562,7 +1580,7 @@ class ScreenDeepfakeDetector:
             return
         self.status_var.set("Training in progress...")
         def train_thread():
-            result = self.model.train(real_path, fake_path, self.log, progress_callback)
+            result = self.model.train(real_path, fake_path, self.log, progress_callback, balance_dataset=balance_dataset)
             if result:
                 self.model_status_var.set("Model loaded ✓")
                 self.status_var.set("Ready - Click 'Start Scanning'")
