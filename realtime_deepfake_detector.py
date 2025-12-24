@@ -22,19 +22,26 @@ import sys
 import winreg
 from tray_handler import TrayHandler
 
-# Color scheme - Bluish purple theme
+# Color scheme - Warm & Welcoming theme
 THEME_COLORS = {
-    'bg_dark': '#1e1f26',          # Main background (soft charcoal)
-    'bg_light': '#252733',         # Elevated panels / cards
-    'accent_light': '#3a4f7a',     # Subtle blue accent
-    'accent_medium': '#4b5fa5',    # Primary accent (buttons, focus)
-    'accent_dark': '#2c3557',      # Borders / separators
-    'text_primary': '#e6e6f0',     # Main text (soft white)
-    'text_secondary': '#b8b9c9',   # Secondary / hint text
-    'highlight': '#6b7fd7',        # Gentle highlight (not neon)
-    'success': '#5fa8d3',          # Calm blue-green
-    'warning': '#d9a441',          # Soft amber
-    'error': '#d96c6c',            # Muted red
+    # Backgrounds (warm & inviting)
+    'bg_dark': '#faf6f1',          # App background (warm cream)
+    'bg_light': '#ffffff',         # Panels / cards (pure white)
+
+    # Accents (warm & natural)
+    'accent_light': '#f5e6d3',     # Soft peach
+    'accent_medium': '#d4845c',    # Warm terracotta
+    'accent_dark': '#b85d3b',      # Deep warm brown
+
+    # Text (warm & readable)
+    'text_primary': '#3d2817',     # Warm dark brown
+    'text_secondary': '#8b7355',   # Warm medium brown
+
+    # Highlights & states
+    'highlight': '#d4845c',        # Warm terracotta highlight
+    'success': '#5a9d6e',          # Natural green
+    'warning': '#d4845c',          # Warm terracotta
+    'error': '#a85a47',            # Warm rust red
 }
 
 
@@ -157,7 +164,7 @@ class SettingsWindow:
         section.pack(fill=tk.X, pady=(0, 15))
         
         ttk.Label(section, text="Train a new deepfake detection model", 
-                 font=('Consolas', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 15))
+                 font=('Consolas', 9), foreground=THEME_COLORS['text_secondary']).pack(anchor=tk.W, pady=(0, 15))
         
         # Real Dataset
         ttk.Label(section, text="Real Images Dataset:", 
@@ -209,7 +216,7 @@ class SettingsWindow:
               command=self._test_model).pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(section, text="ℹ️ Training may take several minutes depending on dataset size", 
-                 font=('Consolas', 8), foreground='blue').pack(anchor=tk.W, pady=(5, 0))
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(5, 0))
 
     def _create_general_settings(self, parent):
         section = ttk.LabelFrame(parent, text="General Settings", padding="15")
@@ -220,7 +227,7 @@ class SettingsWindow:
                        variable=self.auto_start_var).pack(anchor=tk.W, pady=5)
         
         ttk.Label(section, text="ℹ️ Requires a trained model to be available", 
-                 font=('Consolas', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 5))
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 5))
         
         ttk.Separator(section, orient='horizontal').pack(fill=tk.X, pady=15)
         
@@ -235,7 +242,7 @@ class SettingsWindow:
                        variable=self.start_with_windows_var).pack(anchor=tk.W, pady=5)
         
         ttk.Label(section, text="ℹ️ Application will auto-launch when you log in", 
-                 font=('Consolas', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 5))
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 5))
     
     def _create_self_learning_settings(self, parent):
         section = ttk.LabelFrame(parent, text="Self-Learning Settings", padding="15")
@@ -246,7 +253,7 @@ class SettingsWindow:
                        variable=self.enable_self_learning_var).pack(anchor=tk.W, pady=5)
         
         ttk.Label(section, text="ℹ️ Model will retrain using classified images after each detection session", 
-                 font=('Consolas', 8), foreground='blue').pack(anchor=tk.W, pady=(0, 10))
+                 font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(0, 10))
         
         # Minimum samples for retraining
         self.min_samples_var = tk.IntVar(value=self.app.min_samples_for_retrain)
@@ -268,7 +275,7 @@ class SettingsWindow:
     def _create_slider(self, parent, title, desc, var, from_, to, step, suffix, warning):
         """Helper to create slider control"""
         ttk.Label(parent, text=title, font=('Consolas', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Label(parent, text=desc, font=('Consolas', 9), foreground='gray').pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(parent, text=desc, font=('Consolas', 9), foreground=THEME_COLORS['text_secondary']).pack(anchor=tk.W, pady=(0, 5))
         
         slider_frame = ttk.Frame(parent)
         slider_frame.pack(fill=tk.X, pady=(0, 15))
@@ -280,7 +287,7 @@ class SettingsWindow:
         label = ttk.Label(slider_frame, text=f"{var.get()}{suffix}", width=6)
         label.pack(side=tk.LEFT, padx=(10, 0))
         
-        ttk.Label(parent, text=warning, font=('Consolas', 8), foreground='orange').pack(anchor=tk.W)
+        ttk.Label(parent, text=warning, font=('Consolas', 8), foreground=THEME_COLORS['warning']).pack(anchor=tk.W)
         return label
     
     def _snap_slider(self, var, label, step, suffix):
@@ -941,7 +948,7 @@ class ScreenDeepfakeDetector:
         style.configure('TButton', background=THEME_COLORS['accent_light'], 
                        foreground=fg, padding=8, borderwidth=1)
         style.map('TButton',
-                 foreground=[('active', THEME_COLORS['success']),
+                 foreground=[('active', THEME_COLORS['text_primary']),
                            ('pressed', THEME_COLORS['text_secondary']),
                            ('disabled', THEME_COLORS['text_secondary'])],
                  background=[('active', THEME_COLORS['highlight']),
@@ -952,6 +959,9 @@ class ScreenDeepfakeDetector:
         style.configure('Accent.TButton', background=THEME_COLORS['highlight'],
                        foreground=fg, padding=8, borderwidth=1)
         style.map('Accent.TButton',
+                 foreground=[('active', THEME_COLORS['text_primary']),
+                           ('pressed', THEME_COLORS['text_secondary']),
+                           ('disabled', THEME_COLORS['text_secondary'])],
                  background=[('active', THEME_COLORS['success']),
                            ('pressed', THEME_COLORS['accent_dark']),
                            ('disabled', THEME_COLORS['accent_dark'])])
