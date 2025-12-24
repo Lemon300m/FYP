@@ -4,6 +4,7 @@ win10toast
 numpy
 opencv-python
 scikit-learn
-joblib
 screeninfo
 mss
+tensorflow
+keras

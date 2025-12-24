@@ -53,6 +53,8 @@ python -m PyInstaller ^
     --hidden-import win10toast ^
     --hidden-import screeninfo ^
     --hidden-import mss ^
+    --hidden-import tensorflow ^
+    --hidden-import keras ^
     realtime_deepfake_detector.py || goto :fail
 
 REM ===== MOVE EXE TO CURRENT FOLDER =====
