@@ -7,3 +7,5 @@ scikit-learn
 joblib
 screeninfo
 mss
+tensorflow
+keras

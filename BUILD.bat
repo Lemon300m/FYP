@@ -37,6 +37,8 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 if exist __pycache__ rmdir /s /q __pycache__
 for %%f in (*.spec) do del /f /q "%%f"
+REM Remove old pickle files (switch to . h5 format)
+for %%f in (*.pkl) do del /f /q "%%f"
 
 REM ===== BUILD =====
 echo Building executable...
@@ -47,13 +49,20 @@ python -m PyInstaller ^
     --add-data "haarcascade_frontalface_default.xml;." ^
     --hidden-import cv2 ^
     --hidden-import numpy ^
-    --hidden-import sklearn ^
+    --hidden-import tensorflow ^
+    --hidden-import keras ^
+    --hidden-import tensorflow.keras ^
+    --hidden-import tensorflow.keras.models ^
+    --hidden-import tensorflow.keras.layers ^
+    --hidden-import tensorflow.keras.applications. mobilenetv2 ^
     --hidden-import PIL ^
     --hidden-import pystray ^
     --hidden-import win10toast ^
     --hidden-import screeninfo ^
     --hidden-import mss ^
-    realtime_deepfake_detector.py || goto :fail
+    --hidden-import sklearn ^
+    --collect-all tensorflow ^
+    realtime_deepfake_detector. py || goto :fail
 
 REM ===== MOVE EXE TO CURRENT FOLDER =====
 if exist "dist\DeepfakeDetector.exe" (
