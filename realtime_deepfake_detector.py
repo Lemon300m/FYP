@@ -6,10 +6,11 @@ from PIL import Image, ImageTk, ImageGrab
 import threading
 import numpy as np
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, BatchNormalization, GlobalAveragePooling2D
+from tensorflow. keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.applications import MobileNetV2
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
 try:
     import mss
     MSS_AVAILABLE = True
@@ -206,20 +207,13 @@ class SettingsWindow:
         ttk.Button(section, text="🎯 Train New Model", 
                   command=self._train_model).pack(fill=tk.X, pady=(0, 10))
         
-        # Progress bar with percentage label
+        # Progress text (instead of bar)
         progress_frame = ttk.Frame(section)
         progress_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.train_progress = ttk.Progressbar(progress_frame, variable=self.train_progress_var, 
-                                             maximum=100, mode='determinate')
-        self.train_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        
-        progress_label = ttk.Label(progress_frame, textvariable=self.train_progress_label_var, 
-                                  font=('Consolas', 10, 'bold'), width=5)
-        progress_label.pack(side=tk.RIGHT)
-        
-        # Bind progress var to update label
-        self.train_progress_var.trace('w', self._update_progress_label)
+
+        self.train_progress_label = ttk.Label(progress_frame, textvariable=self. train_progress_label_var, 
+                                            font=('Consolas', 11, 'bold'), foreground=THEME_COLORS['success'])
+        self.train_progress_label.pack(side=tk. LEFT)
         
         ttk.Button(section, text="🔎 Test Current Model", 
               command=self._test_model).pack(fill=tk.X, pady=(0, 10))
@@ -473,13 +467,12 @@ class ConfigManager:
             return False
 
 class DeepfakeModel:
-    """Handles model training and prediction"""
+    """Handles CNN model training and prediction using MobileNetV2 transfer learning"""
     
-    def __init__(self, model_path="deepfake_model.pkl"):
+    def __init__(self, model_path="deepfake_model.h5"):
         self.model_archive_dir = get_data_path("model_archive")
         self.model = None
-        self.scaler_stats = None  # Store normalization statistics for predictions
-        self.current_model_path = None  # Track which model is loaded
+        self.current_model_path = None
         
         try:
             os.makedirs(self.model_archive_dir, exist_ok=True)
@@ -489,10 +482,10 @@ class DeepfakeModel:
         self.face_cascade = None
     
         cascade_paths = [
-            get_resource_path('haarcascade_frontalface_default.xml'),  # Bundled with exe
-            os.path.join(os.path.dirname(__file__), 'haarcascade_frontalface_default.xml'),  # Same dir as script
-            'haarcascade_frontalface_default.xml',  # Current directory
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'  # OpenCV data
+            get_resource_path('haarcascade_frontalface_default.xml'),
+            os.path.join(os.path.dirname(__file__), 'haarcascade_frontalface_default.xml'),
+            'haarcascade_frontalface_default.xml',
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         ]
         
         for cascade_path in cascade_paths:
@@ -505,20 +498,60 @@ class DeepfakeModel:
         if self.face_cascade is None or self.face_cascade.empty():
             print("⚠ WARNING: Could not load Haar Cascade classifier!")
             print("Face detection will not work properly.")
+
+    def _build_cnn_basic(self, input_shape):
+        """Build a basic 3-layer CNN"""
+        model = Sequential([
+            Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+            BatchNormalization(),
+            MaxPooling2D(2, 2),
+            
+            Conv2D(64, (3, 3), activation='relu'),
+            BatchNormalization(),
+            MaxPooling2D(2, 2),
+            
+            Conv2D(128, (3, 3), activation='relu'),
+            BatchNormalization(),
+            MaxPooling2D(2, 2),
+            
+            Flatten(),
+            Dense(128, activation='relu'),
+            Dropout(0.5),
+            Dense(1, activation='sigmoid'),
+        ])
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        return model
+
+    def _build_cnn_mobilenet(self, input_shape):
+        """Build MobileNetV2 transfer learning model (RECOMMENDED - Fast & Accurate)"""
+        base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=input_shape)
+        base_model.trainable = False  # Freeze base weights for faster training
         
-        self.model_archive_dir = get_data_path("model_archive")
-        try:
-            os.makedirs(self.model_archive_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Warning: Failed to create archive directory: {e}")
-            self.model_archive_dir = "."
+        model = Sequential([
+            base_model,
+            GlobalAveragePooling2D(),
+            Dense(128, activation='relu'),  # Reduced from 256
+            Dropout(0.4),
+            Dense(1, activation='sigmoid'),
+        ])
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        return model
+    
+    def _build_cnn(self, input_shape, use_mobilenet=True):
+        """Build CNN model - chooses between basic and MobileNetV2"""
+        if use_mobilenet:
+            print("Building MobileNetV2 transfer learning model...")
+            return self._build_cnn_mobilenet(input_shape)
+        else:
+            print("Building basic CNN model...")
+            return self._build_cnn_basic(input_shape)
 
     def get_available_models(self):
         """Get list of available model files from model_archive directory"""
         try:
             models = []
             for file in os.listdir(self.model_archive_dir):
-                if file. endswith('.h5') or file.endswith('.keras'):
+                if file.endswith('.h5'):
                     full_path = os.path.join(self.model_archive_dir, file)
                     models.append({
                         'name': file,
@@ -526,7 +559,6 @@ class DeepfakeModel:
                         'mtime': os.path.getmtime(full_path),
                         'size': os.path.getsize(full_path)
                     })
-            # Sort by modification time (newest first)
             models.sort(key=lambda x: x['mtime'], reverse=True)
             return models
         except Exception as e:
@@ -547,12 +579,13 @@ class DeepfakeModel:
                 model_path = self. get_latest_model_path()
             
             if model_path and os.path.exists(model_path):
-                self.model = keras.models.load_model(model_path)  # TensorFlow load
+                self.model = load_model(model_path)
                 self.current_model_path = model_path
+                print(f"✓ Model loaded successfully:  {os.path.basename(model_path)}")
                 return True
             return False
-        except Exception as e: 
-            print(f"Error loading model: {e}")
+        except Exception as e:
+            print(f"Error loading Keras model: {e}")
             return False
     
     def save(self, filename=None):
@@ -560,228 +593,218 @@ class DeepfakeModel:
         if self.model:
             if filename is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"model_{timestamp}.h5"
+                filename = f"cnn_model_{timestamp}.h5"
             
             save_path = os.path.join(self.model_archive_dir, filename)
-            self.model.save(save_path)  # TensorFlow save method
+            self.model.save(save_path)
             self.current_model_path = save_path
+            print(f"✓ Model saved:  {save_path}")
             return save_path
         return None
-    
-    def archive_current_model(self):
-        if os.path.exists(self.model_path):
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            archive_path = os.path.join(self.model_archive_dir, f"model_{timestamp}.pkl")
-            try:
-                shutil.copy2(self.model_path, archive_path)
-                return archive_path
-            except Exception as e:
-                print(f"Error archiving model: {e}")
-                return None
-        return None
-            
+
     def detect_faces(self, frame):
+        """Detect faces using Haar Cascade"""
         if self.face_cascade.empty():
             return []
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return self.face_cascade.detectMultiScale(gray, 1.3, 5, minSize=(30, 30))
     
-    def extract_features(self, img):
-        if img is None or img.size == 0:
+    def preprocess_face(self, img):
+        """Preprocess face image for CNN input"""
+        try:
+            if img is None or img.size == 0:
+                return None
+            
+            # Resize to 96x96 (input size for CNN)
+            img = cv2.resize(img, (96, 96))
+            
+            # Convert BGR to RGB
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+            # Normalize to [0, 1]
+            img = img.astype('float32') / 255.0
+            
+            return img
+        except Exception as e: 
+            print(f"Preprocessing error: {e}")
             return None
-        
-        img = cv2.resize(img, (128, 128))  # Reduced from 128x128 for faster processing
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        features = []
-        
-        # Faster histogram with 4 bins instead of 8
-        for i in range(3):
-            hist = cv2.calcHist([img], [i], None, [16], [0, 256])
-            features.extend(hist.flatten())
-        
-        # Laplacian variance for texture
-        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-        features.extend([laplacian.mean(), laplacian.std(), laplacian.var()])
-        
-        # Edge detection stats
-        edges = cv2.Canny(gray, 100, 200)
-        features.extend([edges.mean(), edges.std()])
-        
-        return np.array(features)
     
     def predict(self, face_img):
         if not self.model:
             return None
-            
-        features = self.extract_features(face_img)
-        if features is None:
-            return None
-        try:
-            features = features.reshape(1, -1)
-            
-            # Normalize using stored statistics
-            if self.scaler_stats:
-                mean, std = self.scaler_stats
-                features = (features - mean) / (std + 1e-8)
-            
-            prediction = self.model.predict(features, verbose=0)
-            confidence = float(prediction[0][0]) * 100
-            predicted_class = 1 if confidence > 50 else 0
-            
-            return {
-                'prediction': predicted_class,
-                'confidence': confidence if predicted_class == 1 else 100 - confidence
-            }
-        except Exception as e:
-            print(f"Error during prediction: {e}")
+        
+        img = self.preprocess_face(face_img)
+        if img is None:
             return None
         
-    def _build_nn_model(self, input_size):
-        """Build neural network model architecture"""
-        model = keras.Sequential([
-            layers.Input(shape=(input_size,)),
-            
-            layers.Dense(512, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.4),
-            
-            layers.Dense(256, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.3),
-            
-            layers.Dense(128, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.3),
-            
-            layers.Dense(64, activation='relu'),
-            layers.BatchNormalization(),
-            layers.Dropout(0.2),
-            
-            layers.Dense(32, activation='relu'),
-            layers.Dropout(0.2),
-            
-            layers.Dense(1, activation='sigmoid')
-        ])
+        # Add batch dimension
+        img = np.expand_dims(img, axis=0)
         
-        return model
+        # Get prediction probability
+        prob = float(self.model.predict(img, verbose=0)[0][0])
+        
+        # Convert to binary prediction (0=Real, 1=Fake)
+        prediction = 1 if prob >= 0.5 else 0
+        
+        # Calculate confidence
+        confidence = prob * 100 if prediction == 1 else (1 - prob) * 100
+        
+        return {'prediction': prediction, 'confidence':  confidence}
     
-    def train(self, real_path, fake_path, log_callback, progress_callback=None, balance_dataset=False, archive=True):
-        log_callback("Starting model training...")
-        progress_var = progress_callback if progress_callback else tk.DoubleVar()
+    def train(self, real_path, fake_path, log_callback, progress_callback=None, balance_dataset=False, archive=True, use_mobilenet=True, augment=True):
+        """Train CNN model with data augmentation and optional transfer learning"""
+        log_callback("=" * 60)
+        log_callback("Starting CNN Training with MobileNetV2 Transfer Learning")
+        log_callback("=" * 60)
         
         try:
-            # Models are automatically saved to model_archive with timestamps
-            
-            # If balancing is enabled, pre-calculate target sample count
-            target_samples = None
+            # Determine target sample count for balancing BEFORE loading
             if balance_dataset:
                 real_files = [f for f in os.listdir(real_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
-                fake_files = [f for f in os.listdir(fake_path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
-                target_samples = min(len(real_files), len(fake_files))
-                log_callback(f"Balance enabled: Will load {target_samples} samples from each class")
+                fake_files = [f for f in os.listdir(fake_path) if f.lower().endswith(('.jpg', '.jpeg', '. png', '.bmp'))]
+                target_count = min(len(real_files), len(fake_files))
+                log_callback(f"Balancing dataset: Using {target_count} samples from each class")
+            else:
+                target_count = None
             
-            log_callback("Loading real images...")
-            X_real, y_real = self._load_dataset(real_path, 0, progress_var, log_callback, balance_dataset, target_samples)
-            log_callback("Loading fake images...")
-            X_fake, y_fake = self._load_dataset(fake_path, 1, progress_var, log_callback, balance_dataset, target_samples)
-            
+            # Load datasets with augmentation
+            X_real, y_real = self._load_images(real_path, 0, log_callback, balance_dataset, target_count, augment=augment)
+            X_fake, y_fake = self._load_images(fake_path, 1, log_callback, balance_dataset, target_count, augment=augment)
             if not X_real or not X_fake:
-                log_callback("Error: No data loaded from datasets")
+                log_callback("✗ Error:  No data loaded from datasets")
                 return False
-                
+            
+            # Combine datasets
             X = np.array(X_real + X_fake)
             y = np.array(y_real + y_fake)
             log_callback(f"Total samples: {len(X)} (Real: {len(X_real)}, Fake: {len(X_fake)})")
             
-            # Normalize features
-            X_mean = X.mean(axis=0)
-            X_std = X.std(axis=0) + 1e-8
-            X_normalized = (X - X_mean) / X_std
+            # Split into train/test
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            log_callback(f"Train samples:  {len(X_train)}, Test samples: {len(X_test)}")
+            
+            # Build model
+            input_shape = (96, 96, 3)
+            self.model = self._build_cnn(input_shape, use_mobilenet=use_mobilenet)
+            
+            # Setup callbacks
+            callbacks = [
+                EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=1),
+                ModelCheckpoint(
+                    os.path.join(self.model_archive_dir, "tmp_best_cnn.keras"),
+                    monitor='val_loss',
+                    save_best_only=True,
+                    verbose=0
+                )
+            ]
+            
+            # Train model
+            log_callback("Training CNN...   (this may take several minutes)")
+            log_callback("Starting training loop...")
+            
+            class ProgressCallback(tf.keras.callbacks.Callback):
+                def __init__(self, log_callback, total_epochs):
+                    self.log_callback = log_callback
+                    self.total_epochs = total_epochs
+                
+                def on_epoch_end(self, epoch, logs=None):
+                    percent = int((epoch + 1) / self.total_epochs * 100)
+                    loss = logs['loss']
+                    val_loss = logs['val_loss']
+                    acc = logs['accuracy']
+                    val_acc = logs['val_accuracy']
+                    print(f"\r  Epoch {epoch + 1}/{self.total_epochs} ({percent}%) - Loss: {loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {acc:.4f} | Val Acc: {val_acc:.4f}", end='', flush=True)
 
-            # Store normalization statistics for prediction
-            self.scaler_stats = (X_mean, X_std)
-
-            X_train, X_test, y_train, y_test = train_test_split(X_normalized, y, test_size=0.2, random_state=42)
-
-            log_callback("Building Neural Network model...")
-            progress_var.set(40)
-
-            input_size = X_train.shape[1]
-            self.model = self._build_nn_model(input_size)
-
-            self.model.compile(
-                optimizer=keras.optimizers.Adam(learning_rate=0.001),
-                loss='binary_crossentropy',
-                metrics=['accuracy']
-            )
-
-            log_callback("Training model (this may take a while)...")
-            progress_var.set(50)
+            callbacks.append(ProgressCallback(log_callback, 15))
 
             history = self.model.fit(
                 X_train, y_train,
-                epochs=100,
-                batch_size=32,
-                validation_split=0.2,
-                verbose=0,
-                callbacks=[
-                    keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-                ]
+                validation_data=(X_test, y_test),
+                epochs=15,
+                batch_size=64,
+                callbacks=callbacks,
+                verbose=0
             )
+            print()  # New line after training completes
+            log_callback("Training completed!")
 
-            progress_var.set(80)
-
-            y_pred = self.model. predict(X_test, verbose=0)
-            y_pred_binary = (y_pred > 0.5).astype(int).flatten()
-            accuracy = accuracy_score(y_test, y_pred_binary)
+            # Evaluate on test set
+            test_loss, accuracy = self.model.evaluate(X_test, y_test, verbose=0)
+            log_callback(f"✓ Model accuracy on test set: {accuracy:.4f} ({accuracy*100:.2f}%)")
+            log_callback(f"  Test loss: {test_loss:.4f}")
             
-            log_callback(f"Model accuracy: {accuracy:.4f}")
-            progress_var.set(100)
-            
+            # Save model
             saved_path = self.save()
-            if saved_path:
-                log_callback(f"Model saved to: {os.path.basename(saved_path)}")
+            if saved_path:  
+                log_callback(f"✓ Model saved:   {os.path.basename(saved_path)}")
             
-            log_callback("✓ Training completed successfully!")
+            log_callback("=" * 60)
+            log_callback("✓ CNN Training completed successfully!")
+            log_callback("=" * 60)
             return accuracy
             
         except Exception as e:
-            log_callback(f"✗ Training error: {e}")
+            log_callback(f"✗ Training error:  {e}")
+            import traceback
+            log_callback(traceback.format_exc())
             return False
-        finally:
-            if progress_callback:
-                progress_var.set(0)
+            
     
-    def _load_dataset(self, path, label, progress_var, log_callback, balance_dataset=False, target_samples=None):
+    def _load_images(self, path, label, log_callback=None, balance_dataset=False, target_count=None, augment=True):
+        """Load and preprocess images with optional data augmentation and balancing"""
         import random
-        X, y = [], []
-        files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+        images, labels = [], []
+        
+        files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '. png', '.bmp'))]
         total = len(files)
         
-        log_callback(f"Found {total} images in {os.path.basename(path)} dataset")
+        if log_callback: 
+            log_callback(f"Found {total} images in {os.path.basename(path)} dataset")
         
-        # If balancing is enabled and target_samples is set, randomly select files to load
-        if balance_dataset and target_samples is not None and total > target_samples:
-            log_callback(f"Randomly selecting {target_samples} files from {total} available")
-            files = random.sample(files, target_samples)
-            total = len(files)
+        # Balance dataset by randomly sampling if target_count is specified
+        if balance_dataset and target_count is not None and total > target_count:
+            if log_callback:
+                log_callback(f"  Balancing:  Sampling {target_count} files from {total}")
+            files = random.sample(files, target_count)
         
+        # Load images
         for idx, file in enumerate(files):
-            img = cv2.imread(os.path.join(path, file))
-            if img is not None:
-                features = self.extract_features(img)
-                if features is not None:
-                    X.append(features)
-                    y.append(label)
-                    
-            if idx % 10 == 0:
-                progress = (idx + 1) / total * 100
-                if progress_var:
-                    progress_var.set(progress * 0.5)
+            try:
+                img_path = os.path.join(path, file)
+                img = cv2.imread(img_path)
+                img = self. preprocess_face(img)
                 
-        log_callback(f"Loaded {len(X)} valid samples from {os.path.basename(path)}")
-        return X, y
-
+                if img is not None:
+                    images.append(img)
+                    labels.append(label)
+                    
+                    # Data augmentation:  flip horizontally
+                    if augment:  
+                        img_flipped = np.fliplr(img)
+                        images.append(img_flipped)
+                        labels. append(label)
+                        
+                        # Optional: slight brightness variation
+                        img_bright = np.clip(img * 1.1, 0, 1)
+                        images.append(img_bright)
+                        labels.append(label)
+                
+                # Single line progress update (overwrites previous line)
+                percent = int((idx + 1) / len(files) * 100)
+                print(f"\r  Loading {os.path.basename(path)}: {idx + 1}/{len(files)} ({percent}%)", end='', flush=True)
+                            
+            except Exception as e: 
+                if log_callback:
+                    log_callback(f"  Warning: Could not load {file}: {e}")
+                continue
+        
+        print()  # New line after loading completes
+        
+        if log_callback:
+            aug_text = " (with augmentation x3)" if augment else ""
+            log_callback(f"✓ Loaded {len(images)} samples from {os.path.basename(path)}{aug_text}")
+        
+        return images, labels
 class SelfLearningManager:
     """Manages self-learning data collection and retraining"""
     
@@ -1629,7 +1652,7 @@ class ScreenDeepfakeDetector:
         try:
             real_path = self.self_learning.real_dir
             fake_path = self.self_learning.fake_dir
-            result = self.model.train(real_path, fake_path, self.log, archive=True)
+            result = self.model.train(real_path, fake_path, self. log, balance_dataset=True, augment=True)
             if result:
                 self.log(f"✓ Retraining completed! New accuracy: {result:.4f}")
                 self.model_status_var.set("Model loaded ✓ (Retrained)")
@@ -1673,21 +1696,28 @@ class ScreenDeepfakeDetector:
             if not self.model.load():
                 messagebox.showerror("Error", "No trained model found.")
                 return
-            Xr, yr = self.model._load_dataset(real_path, 0, None, self.log)
-            Xf, yf = self.model._load_dataset(fake_path, 1, None, self.log)
-            X = np.array(Xr + Xf)
-            y = np.array(yr + yf)
+            
+            # Load test images
+            X_real, y_real = self.model._load_images(real_path, 0, self.log, augment=False)
+            X_fake, y_fake = self.model._load_images(fake_path, 1, self.log, augment=False)
+            
+            X = np.array(X_real + X_fake)
+            y = np.array(y_real + y_fake)
+            
             if X.size == 0:
                 messagebox.showerror("Error", "No valid samples loaded.")
                 return
-            y_pred = self.model.model.predict(X)
-            acc = accuracy_score(y, y_pred)
-            self.log(f"Test completed — Accuracy: {acc:.4f}")
-            messagebox.showinfo("Model Test Results", f"Accuracy: {acc:.4f}")
+            
+            # Evaluate
+            _, accuracy = self.model.model.evaluate(X, y, verbose=0)
+            self.log(f"✓ Test completed — Accuracy: {accuracy:.4f} ({accuracy*100:.2f}%)")
+            messagebox.showinfo("Model Test Results", f"Accuracy: {accuracy:.4f}\n({accuracy*100:.2f}%)")
         except Exception as e:
             self.log(f"✗ Testing error: {e}")
+            messagebox.showerror("Error", f"Testing failed: {e}")
         finally:
             self.status_var.set("Ready")
+
     def _refresh_model_list(self):
         """Refresh the list of available models"""
         models = self.model.get_available_models()
