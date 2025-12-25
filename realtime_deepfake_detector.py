@@ -298,7 +298,12 @@ class SettingsWindow:
         """Snap slider to step intervals"""
         snapped = round(var.get() / step) * step
         var.set(snapped)
-        fmt = f"{int(snapped)}{suffix}" if step >= 1 else f"{snapped:.1f}{suffix}"
+        if suffix == "%":
+            fmt = f"{int(snapped)}{suffix}"
+        elif step >= 1:
+            fmt = f"{int(snapped)}{suffix}"
+        else:
+            fmt = f"{snapped:.1f}{suffix}"
         label.config(text=fmt)
     
     def _update_progress_label(self, *args):
@@ -678,19 +683,18 @@ class DeepfakeModel:
             if progress_callback:
                 progress_var.set(0)
     
-    def _load_dataset(self, path, label, progress_var, log_callback, balance_dataset=False, target_samples=None):
+    def _load_dataset(self, path, label, progress_var, log_callback, balance_dataset=False, target_samples=None, progress_callback=None):
         import random
         X, y = [], []
         files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
         total = len(files)
         
-        log_callback(f"Found {total} images in {os.path.basename(path)} dataset")
-        
         # If balancing is enabled and target_samples is set, randomly select files to load
         if balance_dataset and target_samples is not None and total > target_samples:
-            log_callback(f"Randomly selecting {target_samples} files from {total} available")
             files = random.sample(files, target_samples)
             total = len(files)
+        
+        dataset_name = os.path.basename(path)
         
         for idx, file in enumerate(files):
             img = cv2.imread(os.path.join(path, file))
@@ -699,13 +703,18 @@ class DeepfakeModel:
                 if features is not None:
                     X.append(features)
                     y.append(label)
-                    
-            if idx % 10 == 0:
-                progress = (idx + 1) / total * 100
-                if progress_var:
-                    progress_var.set(progress * 0.5)
-                
-        log_callback(f"Loaded {len(X)} valid samples from {os.path.basename(path)}")
+            
+            # Update progress every file
+            progress_pct = int((idx + 1) / total * 100)
+            if progress_var:
+                progress_var.set(progress_pct * 0.4)
+            
+            # Log progress frequently with carriage return to update same line
+            if (idx + 1) % max(1, total // 200) == 0:  # ~200 updates per dataset
+                print(f"\rLoading {dataset_name}: {idx + 1}/{total} files ({progress_pct}%)", end='', flush=True)
+        
+        print()  # New line after progress completes
+        log_callback(f"Loaded {len(X)} valid samples from {dataset_name}")
         return X, y
 
 class SelfLearningManager:
@@ -1595,20 +1604,24 @@ class ScreenDeepfakeDetector:
             messagebox.showerror("Error", "Please specify both dataset paths")
             return
         self.status_var.set("Testing model...")
+        self.log("Starting model test...")
         try:
             if not self.model.load():
                 messagebox.showerror("Error", "No trained model found.")
                 return
+            self.log("Loading real test images...")
             Xr, yr = self.model._load_dataset(real_path, 0, None, self.log)
+            self.log("Loading fake test images...")
             Xf, yf = self.model._load_dataset(fake_path, 1, None, self.log)
             X = np.array(Xr + Xf)
             y = np.array(yr + yf)
             if X.size == 0:
                 messagebox.showerror("Error", "No valid samples loaded.")
                 return
+            self.log(f"Testing on {len(X)} samples (Real: {len(Xr)}, Fake: {len(Xf)})...")
             y_pred = self.model.model.predict(X)
             acc = accuracy_score(y, y_pred)
-            self.log(f"Test completed — Accuracy: {acc:.4f}")
+            self.log(f"✓ Test completed — Accuracy: {acc:.4f}")
             messagebox.showinfo("Model Test Results", f"Accuracy: {acc:.4f}")
         except Exception as e:
             self.log(f"✗ Testing error: {e}")
