@@ -65,6 +65,59 @@ def get_data_path(relative_path):
     
     return os.path.join(base_path, relative_path)
 
+def create_icon_button(parent, text, command, width=None, is_accent=False, tooltip=None):
+    """Create a button with enlarged emoji icon and normal-sized text"""
+    # Split emoji and text
+    parts = text.split(' ', 1)
+    emoji = parts[0] if parts else ''
+    label = parts[1] if len(parts) > 1 else ''
+    
+    # Create button with larger emoji but normal text size
+    if label:
+        # For buttons with emoji + text, create on separate lines with emoji larger
+        display_text = emoji + '\n' + label
+        btn = tk.Button(parent, text=display_text, command=command, 
+                       font=('Segoe UI Emoji', 12),  # Larger for emoji, but not too big
+                       bg=THEME_COLORS['highlight'] if is_accent else THEME_COLORS['accent_light'],
+                       fg=THEME_COLORS['text_primary'],
+                       relief=tk.RAISED, borderwidth=1,
+                       activebackground=THEME_COLORS['success'] if is_accent else THEME_COLORS['highlight'],
+                       activeforeground=THEME_COLORS['text_primary'],
+                       padx=5, pady=3)
+    else:
+        # For icon-only buttons, use larger font
+        btn = tk.Button(parent, text=emoji, command=command, 
+                       font=('Segoe UI Emoji', 14, 'bold'),
+                       bg=THEME_COLORS['highlight'] if is_accent else THEME_COLORS['accent_light'],
+                       fg=THEME_COLORS['text_primary'],
+                       relief=tk.RAISED, borderwidth=1,
+                       activebackground=THEME_COLORS['success'] if is_accent else THEME_COLORS['highlight'],
+                       activeforeground=THEME_COLORS['text_primary'])
+    
+    if width:
+        btn.config(width=width)
+    
+    return btn
+
+def create_tooltip(widget, text):
+    """Create a tooltip that appears on hover"""
+    def on_enter(event):
+        tooltip = tk.Toplevel()
+        tooltip.wm_overrideredirect(True)
+        tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+        label = tk.Label(tooltip, text=text, background=THEME_COLORS['accent_medium'],
+                       foreground=THEME_COLORS['text_primary'], 
+                       relief=tk.SOLID, borderwidth=1, font=('Consolas', 9))
+        label.pack(padx=4, pady=2)
+        widget.tooltip = tooltip
+        
+    def on_leave(event):
+        if hasattr(widget, 'tooltip'):
+            widget.tooltip.destroy()
+            
+    widget.bind('<Enter>', on_enter)
+    widget.bind('<Leave>', on_leave)
+
 # For multi-monitor support
 try:
     from screeninfo import get_monitors
@@ -175,8 +228,8 @@ class SettingsWindow:
         
         self.real_path_var = tk.StringVar(value=self.app.real_path_var.get())
         ttk.Entry(real_frame, textvariable=self.real_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(real_frame, text="📁 Browse", 
-                  command=lambda: self._browse_dataset("real")).pack(side=tk.LEFT)
+        create_icon_button(real_frame, "📁 Browse", 
+                  lambda: self._browse_dataset("real")).pack(side=tk.LEFT)
         
         # Fake Dataset
         ttk.Label(section, text="Fake Images Dataset:", 
@@ -187,8 +240,8 @@ class SettingsWindow:
         
         self.fake_path_var = tk.StringVar(value=self.app.fake_path_var.get())
         ttk.Entry(fake_frame, textvariable=self.fake_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(fake_frame, text="📁 Browse", 
-                  command=lambda: self._browse_dataset("fake")).pack(side=tk.LEFT)
+        create_icon_button(fake_frame, "📁 Browse", 
+                  lambda: self._browse_dataset("fake")).pack(side=tk.LEFT)
         
         # Balance Dataset Checkbox
         self.balance_dataset_var = tk.BooleanVar(value=True)
@@ -202,8 +255,8 @@ class SettingsWindow:
         self.train_progress_var = tk.DoubleVar()
         self.train_progress_label_var = tk.StringVar(value="0%")
         
-        ttk.Button(section, text="🎯 Train New Model", 
-                  command=self._train_model).pack(fill=tk.X, pady=(0, 10))
+        create_icon_button(section, "🎯 Train New Model", 
+                  self._train_model).pack(fill=tk.X, pady=(0, 10))
         
         # Progress bar with percentage label
         progress_frame = ttk.Frame(section)
@@ -220,8 +273,8 @@ class SettingsWindow:
         # Bind progress var to update label
         self.train_progress_var.trace('w', self._update_progress_label)
         
-        ttk.Button(section, text="🔎 Test Current Model", 
-              command=self._test_model).pack(fill=tk.X, pady=(0, 10))
+        create_icon_button(section, "🔎 Test Current Model", 
+              self._test_model).pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(section, text="ℹ️ Training may take several minutes depending on dataset size", 
                  font=('Consolas', 8), foreground=THEME_COLORS['accent_medium']).pack(anchor=tk.W, pady=(5, 0))
@@ -1045,8 +1098,7 @@ class ScreenDeepfakeDetector:
         controls.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         controls.columnconfigure(1, weight=1)  # Make model selector expandable
         
-        self.toggle_button = ttk.Button(controls, text="▶", 
-                                        command=self.toggle_scanning, style='Accent.TButton', width=3)
+        self.toggle_button = self._create_icon_button(controls, "▶", self.toggle_scanning, is_accent=True)
         self.toggle_button.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(self.toggle_button, "Start Scanning")
         
@@ -1057,12 +1109,12 @@ class ScreenDeepfakeDetector:
         self.model_combo.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         self.model_combo.bind('<<ComboboxSelected>>', self._on_model_change)
         
-        ttk.Button(controls, text="🔄", command=self._refresh_model_list, 
-                width=3).pack(side=tk.LEFT, padx=2)
+        refresh_btn = self._create_icon_button(controls, "🔄", self._refresh_model_list)
+        refresh_btn.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(self.model_combo, "Select a trained model")
         
-        settings_btn = ttk.Button(controls, text="⚙️", width=3,
-                                 command=lambda: SettingsWindow(self.root, self))
+        settings_btn = self._create_icon_button(controls, "⚙️", 
+                                               lambda: SettingsWindow(self.root, self))
         settings_btn.pack(side=tk.RIGHT, padx=2)
         self._create_tooltip(settings_btn, "Settings")
 
@@ -1089,6 +1141,17 @@ class ScreenDeepfakeDetector:
         self.stats_label = ttk.Label(left_frame, text="Scans: 0 | Deepfakes: 0 | Real: 0", 
                                      font=('Consolas', 10), foreground=THEME_COLORS['success'])
         self.stats_label.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
+    
+    def _create_icon_button(self, parent, text, command, width=3, is_accent=False):
+        """Create a button with enlarged emoji icon"""
+        btn = tk.Button(parent, text=text, command=command, width=width, 
+                       font=('Segoe UI Emoji', 14, 'bold'),
+                       bg=THEME_COLORS['highlight'] if is_accent else THEME_COLORS['accent_light'],
+                       fg=THEME_COLORS['text_primary'],
+                       relief=tk.RAISED, borderwidth=1,
+                       activebackground=THEME_COLORS['success'] if is_accent else THEME_COLORS['highlight'],
+                       activeforeground=THEME_COLORS['text_primary'])
+        return btn
     
     def _create_tooltip(self, widget, text):
         """Create a tooltip that appears on hover"""
@@ -1117,20 +1180,17 @@ class ScreenDeepfakeDetector:
         ttk.Label(bottom_frame, text="Quick Actions:", font=('Consolas', 9)).pack(side=tk.LEFT, padx=5)
         
         # Save screenshot button
-        screenshot_btn = ttk.Button(bottom_frame, text="📸", width=3,
-                                   command=self._save_screenshot)
+        screenshot_btn = create_icon_button(bottom_frame, "📸", self._save_screenshot, width=3)
         screenshot_btn.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(screenshot_btn, "Save Screenshot")
         
         # Reset statistics button
-        reset_btn = ttk.Button(bottom_frame, text="↻", width=3,
-                              command=self._reset_statistics)
+        reset_btn = create_icon_button(bottom_frame, "↻", self._reset_statistics, width=3)
         reset_btn.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(reset_btn, "Reset Statistics")
         
         # Activity log button
-        log_btn = ttk.Button(bottom_frame, text="📋", width=3,
-                            command=self._toggle_log_window)
+        log_btn = create_icon_button(bottom_frame, "📋", self._toggle_log_window, width=3)
         log_btn.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(log_btn, "Activity Log")
                 
@@ -1170,8 +1230,8 @@ class ScreenDeepfakeDetector:
         ttk.Label(frame, textvariable=self.samples_count_var,
                  font=('Consolas', 11)).pack(anchor=tk.W, padx=20)
         
-        ttk.Button(frame, text="🗑️ Clear Training Data", 
-                  command=self._clear_training_data).pack(fill=tk.X, pady=(20, 5))
+        create_icon_button(frame, "🗑️ Clear Training Data", 
+                  self._clear_training_data).pack(fill=tk.X, pady=(20, 5))
         
         ttk.Button(frame, text="↻ Retrain with Collected Data",
                   command=self._retrain_model).pack(fill=tk.X, pady=5)
