@@ -1098,7 +1098,7 @@ class ScreenDeepfakeDetector:
         controls.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         controls.columnconfigure(1, weight=1)  # Make model selector expandable
         
-        self.toggle_button = self._create_icon_button(controls, "▶", self.toggle_scanning, is_accent=True)
+        self.toggle_button = create_icon_button(controls, "▶", self.toggle_scanning, width=3, is_accent=True)
         self.toggle_button.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(self.toggle_button, "Start Scanning")
         
@@ -1109,12 +1109,12 @@ class ScreenDeepfakeDetector:
         self.model_combo.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         self.model_combo.bind('<<ComboboxSelected>>', self._on_model_change)
         
-        refresh_btn = self._create_icon_button(controls, "🔄", self._refresh_model_list)
+        refresh_btn = create_icon_button(controls, "🔄", self._refresh_model_list, width=3)
         refresh_btn.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(self.model_combo, "Select a trained model")
         
-        settings_btn = self._create_icon_button(controls, "⚙️", 
-                                               lambda: SettingsWindow(self.root, self))
+        settings_btn = create_icon_button(controls, "⚙️", 
+                                         lambda: SettingsWindow(self.root, self), width=3)
         settings_btn.pack(side=tk.RIGHT, padx=2)
         self._create_tooltip(settings_btn, "Settings")
 
@@ -1141,17 +1141,6 @@ class ScreenDeepfakeDetector:
         self.stats_label = ttk.Label(left_frame, text="Scans: 0 | Deepfakes: 0 | Real: 0", 
                                      font=('Consolas', 10), foreground=THEME_COLORS['success'])
         self.stats_label.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
-    
-    def _create_icon_button(self, parent, text, command, width=3, is_accent=False):
-        """Create a button with enlarged emoji icon"""
-        btn = tk.Button(parent, text=text, command=command, width=width, 
-                       font=('Segoe UI Emoji', 14, 'bold'),
-                       bg=THEME_COLORS['highlight'] if is_accent else THEME_COLORS['accent_light'],
-                       fg=THEME_COLORS['text_primary'],
-                       relief=tk.RAISED, borderwidth=1,
-                       activebackground=THEME_COLORS['success'] if is_accent else THEME_COLORS['highlight'],
-                       activeforeground=THEME_COLORS['text_primary'])
-        return btn
     
     def _create_tooltip(self, widget, text):
         """Create a tooltip that appears on hover"""
