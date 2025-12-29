@@ -1045,15 +1045,10 @@ class ScreenDeepfakeDetector:
         controls.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         controls.columnconfigure(1, weight=1)  # Make model selector expandable
         
-        self.start_button = ttk.Button(controls, text="▶", 
-                                       command=self.start_scanning, style='Accent.TButton', width=3)
-        self.start_button.pack(side=tk.LEFT, padx=2)
-        self._create_tooltip(self.start_button, "Start Scanning")
-        
-        self.stop_button = ttk.Button(controls, text="⏹", 
-                                      command=self.stop_scanning, state='disabled', width=3)
-        self.stop_button.pack(side=tk.LEFT, padx=2)
-        self._create_tooltip(self.stop_button, "Stop Scanning")
+        self.toggle_button = ttk.Button(controls, text="▶", 
+                                        command=self.toggle_scanning, style='Accent.TButton', width=3)
+        self.toggle_button.pack(side=tk.LEFT, padx=2)
+        self._create_tooltip(self.toggle_button, "Start Scanning")
         
         ttk.Label(controls, text="Model:").pack(side=tk.LEFT, padx=(15, 5))
         self.model_var = tk.StringVar()
@@ -1352,13 +1347,20 @@ class ScreenDeepfakeDetector:
         except Exception as e:
             self.log(f"Error exiting from tray: {e}")
     
+    def toggle_scanning(self):
+        """Toggle between start and stop scanning"""
+        if self.is_scanning:
+            self.stop_scanning()
+        else:
+            self.start_scanning()
+    
     def start_scanning(self):
         if not self.model.model:
             messagebox.showerror("Error", "No model loaded. Please train a model first.")
             return
         self.is_scanning = True
-        self.start_button.config(state='disabled')
-        self.stop_button.config(state='normal')
+        self.toggle_button.config(text="⏹")
+        self._create_tooltip(self.toggle_button, "Stop Scanning")
         self.log("Screen scanning started")
         self.status_var.set("Scanning screen...")
         if self.enable_self_learning_var.get():
@@ -1369,8 +1371,8 @@ class ScreenDeepfakeDetector:
     
     def stop_scanning(self):
         self.is_scanning = False
-        self.start_button.config(state='normal')
-        self.stop_button.config(state='disabled')
+        self.toggle_button.config(text="▶")
+        self._create_tooltip(self.toggle_button, "Start Scanning")
         self.video_label.config(image='', text="Screen scanning stopped")
         self.result_label.config(text="Scanning Stopped", foreground=THEME_COLORS['text_secondary'])
         self.confidence_label.config(text="")
