@@ -476,7 +476,9 @@ class ConfigManager:
                 "min_samples_for_retrain": 20,
                 "start_minimized": False,
                 "start_with_windows": False,
-                "selected_model": None
+                "selected_model": None,
+                "original_real_path": None, 
+                "original_fake_path": None
             }
         }
     
@@ -628,11 +630,10 @@ class DeepfakeModel:
         if img is None or img.size == 0:
             return None
         
-        img = cv2.resize(img, (96, 96))  # Reduced from 128x128 for faster processing
+        img = cv2.resize(img, (96, 96))
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         features = []
         
-        # Faster histogram with 4 bins instead of 8
         for i in range(3):
             hist = cv2.calcHist([img], [i], None, [4], [0, 256])
             features.extend(hist.flatten())
@@ -666,9 +667,7 @@ class DeepfakeModel:
         log_callback("Starting model training...")
         progress_var = progress_callback if progress_callback else tk.DoubleVar()
         
-        try:
-            # Models are automatically saved to model_archive with timestamps
-            
+        try:            
             # If balancing is enabled, pre-calculate target sample count
             target_samples = None
             if balance_dataset:
@@ -748,7 +747,7 @@ class DeepfakeModel:
             if (idx + 1) % max(1, total // 200) == 0:  # ~200 updates per dataset
                 print(f"\rLoading {dataset_name}: {idx + 1}/{total} files ({progress_pct}%)", end='', flush=True)
         
-        print()  # New line after progress completes
+        print()
         log_callback(f"Loaded {len(X)} valid samples from {dataset_name}")
         return X, y
 
@@ -937,7 +936,9 @@ class ScreenDeepfakeDetector:
         self.start_with_windows_var = tk.BooleanVar(value=sc.get('start_with_windows', False))
         self.real_path_var = tk.StringVar()
         self.fake_path_var = tk.StringVar()
-        
+        self.original_real_path = sc.get('original_real_path', None)
+        self.original_fake_path = sc.get('original_fake_path', None)
+
         self.last_detection_result = None
         self.last_detected_faces = []
         self.had_detection_in_session = False
@@ -1254,7 +1255,9 @@ class ScreenDeepfakeDetector:
                 "min_samples_for_retrain": self.min_samples_for_retrain,
                 "start_minimized": self.start_minimized_var.get(),
                 "start_with_windows": self.start_with_windows_var.get(),
-                "selected_model": self.selected_model_path  # ADD THIS LINE
+                "selected_model": self.selected_model_path,
+                "original_real_path": self.original_real_path,
+                "original_fake_path": self.original_fake_path
             }
         }
         if self.config_manager.save(config):
@@ -1616,24 +1619,105 @@ class ScreenDeepfakeDetector:
             return
         self.is_retraining = True
         self.log("=" * 50)
-        self.log("RETRAINING INITIATED")
+        self.log("RETRAINING INITIATED - INCREMENTAL LEARNING")
         self.log("=" * 50)
-        self.status_var.set("Retraining model with new data...")
+        self.status_var.set("Retraining model with combined data...")
+        
         try:
-            real_path = self.self_learning.real_dir
-            fake_path = self.self_learning.fake_dir
-            result = self.model.train(real_path, fake_path, self.log, archive=True)
-            if result:
-                self.log(f"✓ Retraining completed! New accuracy: {result:.4f}")
-                self.model_status_var.set("Model loaded ✓ (Retrained)")
-                self._refresh_model_list()  
-                self.self_learning.clear_data()
-                self._update_learning_status()
-                messagebox.showinfo("Retraining Complete", f"Model retrained successfully!\nNew accuracy: {result:.4f}")
+            # Check if we have original training paths
+            if not self.original_real_path or not self.original_fake_path:
+                self.log("⚠ Original training data paths not available")
+                self.log("⚠ Training with self-learning data only (may reduce accuracy)")
+                real_paths = [self.self_learning.real_dir]
+                fake_paths = [self.self_learning.fake_dir]
             else:
-                self.log("✗ Retraining failed")
+                # Combine original + new data
+                counts = self.self_learning.get_sample_counts()
+                total_new = counts['real'] + counts['fake']
+                self.log(f"Combining original training data with {total_new} new samples")
+                real_paths = [self.original_real_path, self.self_learning.real_dir]
+                fake_paths = [self.original_fake_path, self.self_learning.fake_dir]
+            
+            # Load and combine datasets
+            self.log("Loading real images from all sources...")
+            X_real_combined, y_real_combined = [], []
+            for real_path in real_paths:
+                if os.path.exists(real_path) and os.path.isdir(real_path):
+                    X_r, y_r = self.model._load_dataset(real_path, 0, None, self.log)
+                    X_real_combined.extend(X_r)
+                    y_real_combined.extend(y_r)
+                    self.log(f"  Loaded {len(X_r)} samples from {os.path.basename(real_path)}")
+            
+            self.log("Loading fake images from all sources...")
+            X_fake_combined, y_fake_combined = [], []
+            for fake_path in fake_paths:
+                if os.path.exists(fake_path) and os.path.isdir(fake_path):
+                    X_f, y_f = self.model._load_dataset(fake_path, 1, None, self.log)
+                    X_fake_combined.extend(X_f)
+                    y_fake_combined.extend(y_f)
+                    self.log(f"  Loaded {len(X_f)} samples from {os.path.basename(fake_path)}")
+            
+            # Validate we have data
+            if not X_real_combined or not X_fake_combined:
+                self.log("✗ No data loaded for retraining")
+                messagebox.showerror("Retraining Failed", "No valid training data found")
+                return False
+            
+            # Combine datasets
+            X = np.array(X_real_combined + X_fake_combined)
+            y = np.array(y_real_combined + y_fake_combined)
+            
+            self.log(f"Total combined samples: {len(X)} (Real: {len(X_real_combined)}, Fake: {len(X_fake_combined)})")
+            
+            # Split into train and test sets
+            from sklearn.model_selection import train_test_split
+            from sklearn.metrics import accuracy_score
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42
+            )
+            
+            # Train new model with combined data
+            self.log("Training Random Forest with combined dataset...")
+            from sklearn.ensemble import RandomForestClassifier
+            self.model.model = RandomForestClassifier(
+                n_estimators=100, 
+                random_state=42, 
+                n_jobs=-1
+            )
+            self.model.model.fit(X_train, y_train)
+            
+            # Evaluate on test set
+            self.log("Evaluating model accuracy...")
+            y_pred = self.model.model.predict(X_test)
+            accuracy = accuracy_score(y_test, y_pred)
+            
+            self.log(f"Model accuracy on test set: {accuracy:.4f}")
+            
+            saved_path = self.model.save()
+            if saved_path:
+                self.log(f"Model saved to: {os.path.basename(saved_path)}")
+            
+            self.log(f"✓ Retraining completed! New accuracy: {accuracy:.4f}")
+            self.model_status_var.set("Model loaded ✓ (Retrained)")
+            
+            self._refresh_model_list()
+            self.self_learning.clear_data()
+            self._update_learning_status()
+
+            messagebox.showinfo(
+                "Retraining Complete", 
+                f"Model retrained successfully with combined data!\n\n"
+                f"Total training samples: {len(X)}\n"
+                f"New accuracy: {accuracy:.4f}"
+            )
+            return accuracy
+            
         except Exception as e:
             self.log(f"✗ Retraining error: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            messagebox.showerror("Retraining Error", f"An error occurred during retraining:\n{e}")
+            return False
         finally:
             self.is_retraining = False
             self.status_var.set("Ready")
@@ -1645,6 +1729,11 @@ class ScreenDeepfakeDetector:
         if not real_path or not fake_path:
             messagebox.showerror("Error", "Please specify both dataset paths")
             return
+        
+        self.original_real_path = real_path
+        self.original_fake_path = fake_path
+        self.save_config()
+        
         self.status_var.set("Training in progress...")
         def train_thread():
             result = self.model.train(real_path, fake_path, self.log, progress_callback, balance_dataset=balance_dataset)
