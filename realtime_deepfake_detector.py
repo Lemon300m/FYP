@@ -46,7 +46,6 @@ THEME_COLORS = {
 
 
 def get_resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
@@ -55,7 +54,6 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def get_data_path(relative_path):
-    """Get path for data files (always use executable/script directory)"""
     if getattr(sys, 'frozen', False):
         # Running as compiled executable - use executable's directory
         base_path = os.path.dirname(sys.executable)
@@ -66,7 +64,6 @@ def get_data_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def create_icon_button(parent, text, command, width=None, is_accent=False, tooltip=None):
-    """Create a button with enlarged emoji icon and normal-sized text"""
     # Split emoji and text
     parts = text.split(' ', 1)
     emoji = parts[0] if parts else ''
@@ -100,7 +97,6 @@ def create_icon_button(parent, text, command, width=None, is_accent=False, toolt
     return btn
 
 def create_tooltip(widget, text):
-    """Create a tooltip that appears on hover"""
     def on_enter(event):
         tooltip = tk.Toplevel()
         tooltip.wm_overrideredirect(True)
@@ -127,7 +123,6 @@ except ImportError:
     print("screeninfo not installed. Multi-monitor support disabled.")
 
 class SettingsWindow:
-    """Separate window for settings"""
     
     def __init__(self, parent, app):
         self.window = Toplevel(parent)
@@ -330,7 +325,6 @@ class SettingsWindow:
                   command=self._apply_settings, style='Accent.TButton').pack(side=tk.RIGHT)
         
     def _create_slider(self, parent, title, desc, var, from_, to, step, suffix, warning):
-        """Helper to create slider control"""
         ttk.Label(parent, text=title, font=('Consolas', 10, 'bold')).pack(anchor=tk.W, pady=(0, 5))
         ttk.Label(parent, text=desc, font=('Consolas', 9), foreground=THEME_COLORS['text_secondary']).pack(anchor=tk.W, pady=(0, 5))
         
@@ -348,7 +342,6 @@ class SettingsWindow:
         return label
     
     def _snap_slider(self, var, label, step, suffix):
-        """Snap slider to step intervals"""
         snapped = round(var.get() / step) * step
         var.set(snapped)
         if suffix == "%":
@@ -360,12 +353,10 @@ class SettingsWindow:
         label.config(text=fmt)
     
     def _update_progress_label(self, *args):
-        """Update the progress percentage label in real-time"""
         progress = self.train_progress_var.get()
         self.train_progress_label_var.set(f"{int(progress)}%")
     
     def _update_windows_startup(self, enable):
-        """Add/remove application from Windows startup registry"""
         try:
             key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
@@ -455,7 +446,6 @@ class SettingsWindow:
         self.window.destroy()
 
     def _test_model(self):
-        """Handler to test the currently saved model using the dataset paths in the UI"""
         if not self.real_path_var.get() or not self.fake_path_var.get():
             messagebox.showerror("Error", "Please specify both dataset paths")
             return
@@ -468,8 +458,6 @@ class SettingsWindow:
         threading.Thread(target=self.app.test_model, args=(self.real_path_var.get(), self.fake_path_var.get()), daemon=True).start()
 
 class ConfigManager:
-    """Manages configuration loading and saving"""
-    
     def __init__(self, config_path="config.json", default_path="default.json"):
         self.config_path = get_data_path(config_path)
         self.default_path = get_data_path(default_path)
@@ -530,8 +518,6 @@ class ConfigManager:
             return False
 
 class DeepfakeModel:
-    """Handles model training and prediction"""
-    
     def __init__(self, model_path="deepfake_model.pkl"):
         self.model_archive_dir = get_data_path("model_archive")
         self.model = None
@@ -570,7 +556,6 @@ class DeepfakeModel:
             self.model_archive_dir = "."
 
     def get_available_models(self):
-        """Get list of available model files from model_archive directory"""
         try:
             models = []
             for file in os.listdir(self.model_archive_dir):
@@ -590,14 +575,12 @@ class DeepfakeModel:
             return []
     
     def get_latest_model_path(self):
-        """Get path to the latest model in model_archive"""
         models = self.get_available_models()
         if models:
             return models[0]['path']
         return None
             
     def load(self, model_path=None):
-        """Load a specific model or the latest one"""
         try:
             if model_path is None:
                 model_path = self.get_latest_model_path()
@@ -612,7 +595,6 @@ class DeepfakeModel:
             return False
     
     def save(self, filename=None):
-        """Save model to model_archive directory"""
         if self.model:
             if filename is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -770,9 +752,7 @@ class DeepfakeModel:
         log_callback(f"Loaded {len(X)} valid samples from {dataset_name}")
         return X, y
 
-class SelfLearningManager:
-    """Manages self-learning data collection and retraining"""
-    
+class SelfLearningManager:    
     def __init__(self, base_dir="self_learning_data"):
         self.base_dir = get_data_path(base_dir)
         self.real_dir = os.path.join(self.base_dir, "real")
@@ -828,15 +808,12 @@ class SelfLearningManager:
             print(f"Error clearing data: {e}")
             return False
 
-class ScreenCaptureManager:
-    """Manages screen capture using PIL ImageGrab - PyInstaller friendly"""
-    
+class ScreenCaptureManager:    
     def __init__(self):
         self.monitors = self._detect_monitors()
         self.selected_monitor = 0
         
     def _detect_monitors(self):
-        """Detect available monitors"""
         monitors = [{"name": "All Screens", "bbox": None}]
         
         if MULTI_MONITOR_SUPPORT:
@@ -857,18 +834,15 @@ class ScreenCaptureManager:
         return monitors
     
     def get_monitor_names(self):
-        """Get list of monitor names"""
         return [m["name"] for m in self.monitors]
     
     def set_monitor(self, index):
-        """Set the active monitor"""
         if 0 <= index < len(self.monitors):
             self.selected_monitor = index
             return True
         return False
     
     def capture(self):
-        """Capture screen using mss (PyInstaller friendly) with PIL fallback"""
         try:
             # Try mss first (works better with PyInstaller)
             if MSS_AVAILABLE:
@@ -921,9 +895,7 @@ class ScreenCaptureManager:
             except Exception as e2:
                 return None, None
 
-class ScreenDeepfakeDetector:
-    """Main application class"""
-    
+class ScreenDeepfakeDetector:    
     def __init__(self, root):
         self.root = root
         self.root.title("Screen Deepfake Detection System - Self-Learning Edition")
@@ -949,6 +921,7 @@ class ScreenDeepfakeDetector:
         self.is_scanning = False
         self.current_frame = None
         self.last_detection_time = 0
+        self.is_in_tray = False
         
         self.detection_interval = sc.get('detection_interval', 1.0)
         self.selected_monitor = sc.get('selected_monitor', 0)
@@ -1000,12 +973,11 @@ class ScreenDeepfakeDetector:
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
         # When minimized to taskbar, hide to system tray
         try:
-            self.root.bind('<Unmap>', self._on_minimize)
+            self.root.bind('<Unmap>', self._on_unmap)
         except Exception:
             pass
     
     def _setup_theme(self):
-        """Configure the theme with bluish-purple colors"""
         style = ttk.Style()
         
         # Configure colors
@@ -1143,7 +1115,6 @@ class ScreenDeepfakeDetector:
         self.stats_label.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
     
     def _create_tooltip(self, widget, text):
-        """Create a tooltip that appears on hover"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
@@ -1162,7 +1133,6 @@ class ScreenDeepfakeDetector:
         widget.bind('<Leave>', on_leave)
     
     def _setup_bottom_panel(self, parent):
-        """Setup bottom quick action buttons"""
         bottom_frame = ttk.Frame(parent)
         bottom_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
@@ -1193,7 +1163,6 @@ class ScreenDeepfakeDetector:
         monitor_combo.bind('<<ComboboxSelected>>', self._on_monitor_change)
             
     def _show_learning_window(self):
-        """Show self-learning status in a separate window"""
         window = Toplevel(self.root)
         window.title("Self-Learning Status")
         window.geometry("400x300")
@@ -1228,7 +1197,6 @@ class ScreenDeepfakeDetector:
         self._update_learning_status()
     
     def _toggle_log_window(self):
-        """Toggle activity log window"""
         if self.log_window is None or not self.log_window.winfo_exists():
             self.log_window = Toplevel(self.root)
             self.log_window.title("Activity Log")
@@ -1297,7 +1265,6 @@ class ScreenDeepfakeDetector:
             return False
     
     def _load_model(self):
-        """Load model on startup"""
         # Try to load selected model from config, or latest
         model_path = self.selected_model_path
         
@@ -1338,53 +1305,85 @@ class ScreenDeepfakeDetector:
             self.log(f"Invalid monitor selection: {selection}")
     
     def _on_closing(self):
-        # Exit the program completely
-        if self.is_scanning:
-            self.stop_scanning()
-        self.log("Closing application")
-        self.save_config()
-        if self.tray_handler:
-            try:
-                self.tray_handler.stop()
-            except Exception:
-                pass
-        self.root.destroy()
-
-    def _on_minimize(self, event=None):
         try:
-            if str(self.root.state()) == 'iconic':
-                self.log("Minimized to taskbar — moving to system tray")
-                self._hide_to_tray()
-        except Exception:
-            pass
-
-    def _hide_to_tray(self):
-        try:
-            # Hide the window
-            self.root.withdraw()
-            # Start tray icon if available
-            if self.tray_handler:
-                self.tray_handler.start()
-            self.log("Application is running in background (system tray)")
-        except Exception as e:
-            self.log(f"Error hiding to tray: {e}")
-
-    def _show_from_tray(self):
-        try:
-            # Stop tray icon and show window
+            if self.is_scanning:
+                self.stop_scanning()
+            
+            self.log("Closing application")
+            self.save_config()
+            
+            # Stop tray if running
             if self.tray_handler:
                 try:
                     self.tray_handler.stop()
                 except Exception:
                     pass
+            
+            self.is_in_tray = False
+            self.root.quit()
+        except Exception as e:
+            self.log(f"Error during close: {e}")
+            self.root.quit()
+
+    def _on_unmap(self, event):
+        # Only hide to tray if the event is from the root window being minimized
+        if event.widget == self.root:
+            # Small delay to check actual state
+            self.root.after(100, self._check_minimize_state)
+
+    def _check_minimize_state(self):
+        try:
+            if self.root.state() == 'iconic' and not self.is_in_tray:
+                self.log("Minimized to taskbar — moving to system tray")
+                self._hide_to_tray()
+        except Exception as e:
+            self.log(f"Error checking minimize state: {e}")
+
+    def _hide_to_tray(self):
+        try:
+            if self.is_in_tray:
+                return  # Already in tray
+            
+            self.root.withdraw()  # Hide the window
+            self.is_in_tray = True
+            
+            # Start tray icon if available
+            if self.tray_handler:
+                self.tray_handler.start()
+                self.log("Application is running in background (system tray)")
+            else:
+                self.log("Application hidden (tray handler not available)")
+        except Exception as e:
+            self.log(f"Error hiding to tray: {e}")
+            self.is_in_tray = False
+
+    def _show_from_tray(self):
+        try:
+            if not self.is_in_tray:
+                return  # Not in tray
+            
+            # Stop tray icon first
+            if self.tray_handler:
+                try:
+                    self.tray_handler.stop()
+                except Exception as e:
+                    self.log(f"Warning stopping tray: {e}")
+            
+            # Show and restore window
             self.root.deiconify()
-            self.root.after(0, lambda: self.root.state('normal'))
+            self.root.state('normal')
+            self.root.lift()
+            self.root.focus_force()
+            
+            self.is_in_tray = False
             self.log("Restored application from system tray")
         except Exception as e:
             self.log(f"Error showing from tray: {e}")
+            self.is_in_tray = False
 
     def _exit_from_tray(self):
         try:
+            self.is_in_tray = False
             if self.tray_handler:
                 try:
                     self.tray_handler.stop()
@@ -1392,12 +1391,11 @@ class ScreenDeepfakeDetector:
                     pass
             self.log("Exiting application from system tray")
             self.save_config()
-            self.root.destroy()
+            self.root.quit()  # Use quit() instead of destroy()
         except Exception as e:
             self.log(f"Error exiting from tray: {e}")
     
     def toggle_scanning(self):
-        """Toggle between start and stop scanning"""
         if self.is_scanning:
             self.stop_scanning()
         else:
@@ -1678,8 +1676,8 @@ class ScreenDeepfakeDetector:
             self.log(f"✗ Testing error: {e}")
         finally:
             self.status_var.set("Ready")
+
     def _refresh_model_list(self):
-        """Refresh the list of available models"""
         models = self.model.get_available_models()
         if models:
             model_names = [m['name'] for m in models]
@@ -1702,7 +1700,6 @@ class ScreenDeepfakeDetector:
             self.log("No models found in model_archive")
 
     def _on_model_change(self, event=None):
-        """Handle model selection change"""
         selected_name = self.model_var.get()
         if selected_name and selected_name != "No models available":
             model_path = os.path.join(self.model.model_archive_dir, selected_name)
