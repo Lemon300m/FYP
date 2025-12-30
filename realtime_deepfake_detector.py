@@ -1669,16 +1669,12 @@ class ScreenDeepfakeDetector:
             
             self.log(f"Total combined samples: {len(X)} (Real: {len(X_real_combined)}, Fake: {len(X_fake_combined)})")
             
-            # Split into train and test sets
-            from sklearn.model_selection import train_test_split
-            from sklearn.metrics import accuracy_score
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.2, random_state=42
             )
             
             # Train new model with combined data
             self.log("Training Random Forest with combined dataset...")
-            from sklearn.ensemble import RandomForestClassifier
             self.model.model = RandomForestClassifier(
                 n_estimators=100, 
                 random_state=42, 
