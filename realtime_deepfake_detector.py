@@ -1347,10 +1347,19 @@ class ScreenDeepfakeDetector:
             self.root.withdraw()  # Hide the window
             self.is_in_tray = True
             
-            # Start tray icon if available
             if self.tray_handler:
-                self.tray_handler.start()
-                self.log("Application is running in background (system tray)")
+                try:
+                    # pystray icons can't be restarted, must recreate
+                    self.tray_handler = TrayHandler(
+                        app_name="Deepfake Detector",
+                        show_callback=self._show_from_tray,
+                        exit_callback=self._exit_from_tray
+                    )
+                    self.tray_handler.start()
+                    self.log("Application is running in background (system tray)")
+                except Exception as e:
+                    self.log(f"Error creating tray icon: {e}")
+                    self.is_in_tray = False
             else:
                 self.log("Application hidden (tray handler not available)")
         except Exception as e:
@@ -1391,7 +1400,7 @@ class ScreenDeepfakeDetector:
                     pass
             self.log("Exiting application from system tray")
             self.save_config()
-            self.root.quit()  # Use quit() instead of destroy()
+            self.root.quit()
         except Exception as e:
             self.log(f"Error exiting from tray: {e}")
     
