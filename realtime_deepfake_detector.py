@@ -1534,15 +1534,16 @@ class ScreenDeepfakeDetector:
             y2 = min(self.current_frame.shape[0], y + h + padding)
             face_img = self.current_frame[y1:y2, x1:x2]
             result = self.model.predict(face_img)
-            if result and result['confidence'] >= self.threshold_var.get():
+            if result:
                 results.append((result, face_img))
         if results:
             best_result, best_face_img = max(results, key=lambda x: x[0]['confidence'])
             self._update_detection_display(best_result)
-            self._update_statistics(best_result)
-            self.had_detection_in_session = True
-            if self.enable_self_learning_var.get() and self.self_learning.session_active:
-                self.self_learning.save_classified_image(best_face_img, best_result['prediction'], best_result['confidence'])
+            if best_result['confidence'] >= self.threshold_var.get():
+                self._update_statistics(best_result)
+                self.had_detection_in_session = True
+                if self.enable_self_learning_var.get() and self.self_learning.session_active:
+                    self.self_learning.save_classified_image(best_face_img, best_result['prediction'], best_result['confidence'])
     
     def _update_detection_display(self, result):
         self.last_detection_result = result

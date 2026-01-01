@@ -7,7 +7,6 @@ from datetime import datetime
 LOG_FILE = os.path.join(os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__), 'notification_debug.log')
 
 def debug_log(msg):
-    """Log messages to file for debugging"""
     try:  
         with open(LOG_FILE, 'a') as f:
             f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
@@ -31,10 +30,6 @@ except Exception as e:
 
 
 class TrayHandler:
-    """Simple system tray handler using pystray (Windows).
-    Audio alerts via winsound (reliable in PyInstaller).
-    """
-
     def __init__(self, app_name, show_callback=None, exit_callback=None):
         self.app_name = app_name
         self.show_callback = show_callback
@@ -96,7 +91,6 @@ class TrayHandler:
                 debug_log(f"Exit callback failed: {e}")
 
     def notify(self, title, message, duration=5):
-        """Send alert notification (beep + log)"""
         debug_log(f"ALERT: {title} - {message}")
         
         # Run beep in separate thread so it doesn't block
@@ -107,7 +101,6 @@ class TrayHandler:
             ).start()
     
     def _play_alert(self):
-        """Play system alert beep"""
         try:
             # Play alert beep:  1000Hz for 500ms
             winsound. Beep(1000, 500)

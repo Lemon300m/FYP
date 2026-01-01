@@ -4,12 +4,14 @@
     "selected_monitor": 0,
     "no_face_count": 0,
     "max_no_face_intervals": 5,
-    "confidence_threshold": 60.0,
+    "confidence_threshold": 50.0,
     "auto_start_scanning": false,
     "enable_self_learning": true,
     "min_samples_for_retrain": 20,
     "start_minimized": false,
     "start_with_windows": false,
-    "selected_model": null
+    "selected_model": null,
+    "original_real_path": null,
+    "original_fake_path": null
   }
 }
