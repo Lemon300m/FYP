@@ -22,32 +22,30 @@ import sys
 import winreg
 from tray_handler import TrayHandler
 
-# Color scheme - Warm & Welcoming theme
 THEME_COLORS = {
     # Backgrounds (warm & inviting)
-    'bg_dark': '#faf6f1',          # App background (warm cream)
-    'bg_light': '#ffffff',         # Panels / cards (pure white)
+    'bg_dark': '#faf6f1',
+    'bg_light': '#ffffff',
 
     # Accents (warm & natural)
-    'accent_light': '#f5e6d3',     # Soft peach
-    'accent_medium': '#d4845c',    # Warm terracotta
-    'accent_dark': '#b85d3b',      # Deep warm brown
+    'accent_light': '#f5e6d3',
+    'accent_medium': '#d4845c',
+    'accent_dark': '#b85d3b',
 
     # Text (warm & readable)
-    'text_primary': '#3d2817',     # Warm dark brown
-    'text_secondary': '#8b7355',   # Warm medium brown
+    'text_primary': '#3d2817',
+    'text_secondary': '#8b7355',
 
     # Highlights & states
-    'highlight': '#d4845c',        # Warm terracotta highlight
-    'success': '#5a9d6e',          # Natural green
-    'warning': '#d4845c',          # Warm terracotta
-    'error': '#a85a47',            # Warm rust red
+    'highlight': '#d4845c',
+    'success': '#5a9d6e',
+    'warning': '#d4845c',
+    'error': '#a85a47',
 }
 
 
 def get_resource_path(relative_path):
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
@@ -55,10 +53,8 @@ def get_resource_path(relative_path):
 
 def get_data_path(relative_path):
     if getattr(sys, 'frozen', False):
-        # Running as compiled executable - use executable's directory
         base_path = os.path.dirname(sys.executable)
     else:
-        # Running as script - use script's directory
         base_path = os.path.dirname(os.path.abspath(__file__))
     
     return os.path.join(base_path, relative_path)
@@ -69,12 +65,10 @@ def create_icon_button(parent, text, command, width=None, is_accent=False, toolt
     emoji = parts[0] if parts else ''
     label = parts[1] if len(parts) > 1 else ''
     
-    # Create button with larger emoji but normal text size
     if label:
-        # For buttons with emoji + text, create on separate lines with emoji larger
         display_text = emoji + '\n' + label
         btn = tk.Button(parent, text=display_text, command=command, 
-                       font=('Segoe UI Emoji', 12),  # Larger for emoji, but not too big
+                       font=('Segoe UI Emoji', 12),  # Larger for emoji
                        bg=THEME_COLORS['highlight'] if is_accent else THEME_COLORS['accent_light'],
                        fg=THEME_COLORS['text_primary'],
                        relief=tk.RAISED, borderwidth=1,
@@ -82,7 +76,6 @@ def create_icon_button(parent, text, command, width=None, is_accent=False, toolt
                        activeforeground=THEME_COLORS['text_primary'],
                        padx=5, pady=3)
     else:
-        # For icon-only buttons, use larger font
         btn = tk.Button(parent, text=emoji, command=command, 
                        font=('Segoe UI Emoji', 14, 'bold'),
                        bg=THEME_COLORS['highlight'] if is_accent else THEME_COLORS['accent_light'],
@@ -132,14 +125,12 @@ class SettingsWindow:
         self.app = app
         self.window.configure(bg=THEME_COLORS['bg_dark'])
         
-        # Make window modal
         self.window.transient(parent)
         self.window.grab_set()
         
         self.setup_ui()
         
     def setup_ui(self):
-        # Create main container with scrollbar
         main_container = ttk.Frame(self.window)
         main_container.pack(fill=tk.BOTH, expand=True)
         
@@ -156,15 +147,13 @@ class SettingsWindow:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # Mousewheel scrolling
         canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
         
         main_frame = ttk.Frame(scrollable_frame, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Title
-        ttk.Label(main_frame, text="⚙️ Settings & Configuration", 
-                  font=('Consolas', 16, 'bold')).pack(pady=(0, 20))
+        ttk.Label(main_frame, text="⚙️ Settings & Configuration", font=('Consolas', 16, 'bold')).pack(pady=(0, 20))
         
         # Detection Settings
         self._create_detection_settings(main_frame)
@@ -253,19 +242,14 @@ class SettingsWindow:
         create_icon_button(section, "🎯 Train New Model", 
                   self._train_model).pack(fill=tk.X, pady=(0, 10))
         
-        # Progress bar with percentage label
         progress_frame = ttk.Frame(section)
         progress_frame.pack(fill=tk.X, pady=(0, 10))
-        
         self.train_progress = ttk.Progressbar(progress_frame, variable=self.train_progress_var, 
                                              maximum=100, mode='determinate')
         self.train_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        
         progress_label = ttk.Label(progress_frame, textvariable=self.train_progress_label_var, 
                                   font=('Consolas', 10, 'bold'), width=5)
         progress_label.pack(side=tk.RIGHT)
-        
-        # Bind progress var to update label
         self.train_progress_var.trace('w', self._update_progress_label)
         
         create_icon_button(section, "🔎 Test Current Model", 
@@ -539,8 +523,8 @@ class DeepfakeModel:
         cascade_paths = [
             get_resource_path('haarcascade_frontalface_default.xml'),  # Bundled with exe
             os.path.join(os.path.dirname(__file__), 'haarcascade_frontalface_default.xml'),  # Same dir as script
-            'haarcascade_frontalface_default.xml',  # Current directory
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'  # OpenCV data
+            'haarcascade_frontalface_default.xml',
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         ]
         
         for cascade_path in cascade_paths:
@@ -573,7 +557,6 @@ class DeepfakeModel:
                         'mtime': os.path.getmtime(full_path),
                         'size': os.path.getsize(full_path)
                     })
-            # Sort by modification time (newest first)
             models.sort(key=lambda x: x['mtime'], reverse=True)
             return models
         except Exception as e:
@@ -742,12 +725,10 @@ class DeepfakeModel:
                     X.append(features)
                     y.append(label)
             
-            # Update progress every file
             progress_pct = int((idx + 1) / total * 100)
             if progress_var:
                 progress_var.set(progress_pct * 0.4)
             
-            # Log progress frequently with carriage return to update same line
             if (idx + 1) % max(1, total // 200) == 0:  # ~200 updates per dataset
                 print(f"\rLoading {dataset_name}: {idx + 1}/{total} files ({progress_pct}%)", end='', flush=True)
         
@@ -859,13 +840,8 @@ class ScreenCaptureManager:
                         else:
                             bbox = monitor["bbox"]
                         
-                        # Capture with mss
                         screenshot = sct.grab(bbox)
-                        
-                        # Convert to numpy array
                         img = np.array(screenshot)
-                        
-                        # mss returns BGRA, we need BGR
                         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
                         
                         height, width = img.shape[:2]
@@ -878,7 +854,6 @@ class ScreenCaptureManager:
                 raise ImportError("mss not available, falling back to PIL")
                 
         except Exception as e:
-            # Fallback to PIL ImageGrab
             try:
                 monitor = self.monitors[self.selected_monitor]
                 
@@ -976,7 +951,6 @@ class ScreenDeepfakeDetector:
             self.root.after(100, self._hide_to_tray)
         
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
-        # When minimized to taskbar, hide to system tray
         try:
             self.root.bind('<Unmap>', self._on_unmap)
         except Exception:
@@ -1272,7 +1246,6 @@ class ScreenDeepfakeDetector:
             return False
     
     def _load_model(self):
-        # Try to load selected model from config, or latest
         model_path = self.selected_model_path
         
         if self.model.load(model_path):
@@ -1283,7 +1256,6 @@ class ScreenDeepfakeDetector:
         else:
             self.log("No trained model found. Please train a model first.")
         
-        # Populate model dropdown
         self._refresh_model_list()
         self._update_learning_status()
     
@@ -1319,7 +1291,6 @@ class ScreenDeepfakeDetector:
             self.log("Closing application")
             self.save_config()
             
-            # Stop tray if running
             if self.tray_handler:
                 try:
                     self.tray_handler.stop()
@@ -1333,7 +1304,6 @@ class ScreenDeepfakeDetector:
             self.root.quit()
 
     def _on_unmap(self, event):
-        # Only hide to tray if the event is from the root window being minimized
         if event.widget == self.root:
             # Small delay to check actual state
             self.root.after(100, self._check_minimize_state)
@@ -1499,7 +1469,6 @@ class ScreenDeepfakeDetector:
         h, w = frame.shape[:2]
         aspect_ratio = w / h
         
-        # Get available space from the label widget
         self.video_label.update_idletasks()
         available_width = self.video_label.winfo_width()
         available_height = self.video_label.winfo_height()
@@ -1560,7 +1529,6 @@ class ScreenDeepfakeDetector:
             self.result_label.config(text="🚨 DEEPFAKE", foreground=THEME_COLORS['error'])
             self.confidence_label.config(text=f"Confidence: {conf:.1f}%")
             self.log(f"⚠ DEEPFAKE detected! Confidence: {conf:.1f}%")
-            # Send a Windows notification if tray handler available
             try:
                 if self.tray_handler:
                     self.tray_handler.notify(title="Deepfake detected",
@@ -1686,8 +1654,6 @@ class ScreenDeepfakeDetector:
                 n_jobs=-1
             )
             self.model.model.fit(X_train, y_train)
-            
-            # Evaluate on test set
             self.log("Evaluating model accuracy...")
             y_pred = self.model.model.predict(X_test)
             accuracy = accuracy_score(y_test, y_pred)
@@ -1741,7 +1707,7 @@ class ScreenDeepfakeDetector:
             if result:
                 self.model_status_var.set("Model loaded ✓")
                 self.status_var.set("Ready - Click 'Start Scanning'")
-                self._refresh_model_list()  # ADD THIS LINE
+                self._refresh_model_list()
                 messagebox.showinfo("Success", f"Model trained successfully!\nAccuracy: {result:.4f}")
             else:
                 self.status_var.set("Training failed")
@@ -1782,7 +1748,6 @@ class ScreenDeepfakeDetector:
             model_names = [m['name'] for m in models]
             self.model_combo['values'] = model_names
             
-            # Select current model or latest
             if self.selected_model_path:
                 current_name = os.path.basename(self.selected_model_path)
                 if current_name in model_names:
