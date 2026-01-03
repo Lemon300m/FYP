@@ -390,7 +390,11 @@ class SettingsWindow:
             self.app.log(f"⚠ Error updating Windows startup: {e}")
     
     def _browse_dataset(self, dataset_type):
-        folder = filedialog.askdirectory(title=f"Select {dataset_type.capitalize()} Dataset Folder")
+        if getattr(sys, 'frozen', False):
+            initial_dir = os.path.dirname(sys.executable)
+        else:
+            initial_dir = os.path.dirname(os.path.abspath(__file__))
+        folder = filedialog.askdirectory(title=f"Select {dataset_type.capitalize()} Dataset Folder",initialdir=initial_dir)
         if folder:
             (self.real_path_var if dataset_type == "real" else self.fake_path_var).set(folder)
     
