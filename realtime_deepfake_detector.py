@@ -1097,7 +1097,7 @@ class ScreenDeepfakeDetector:
         video_frame.columnconfigure(0, weight=1)
         
         self.video_label = ttk.Label(video_frame, 
-                                     text="Screen capture will appear here\n\nClick 'Start Scanning' to begin", 
+                                     text="Click '▶' button above to begin\n\nScreen capture will appear here", 
                                      background=THEME_COLORS['bg_light'], 
                                      foreground=THEME_COLORS['text_secondary'], 
                                      font=('Consolas', 14))
