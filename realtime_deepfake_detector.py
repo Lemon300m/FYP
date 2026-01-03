@@ -1079,7 +1079,7 @@ class ScreenDeepfakeDetector:
         self.toggle_button.pack(side=tk.LEFT, padx=2)
         self._create_tooltip(self.toggle_button, "Start Scanning")
         
-        ttk.Label(controls, text="Model:").pack(side=tk.LEFT, padx=(15, 5))
+        ttk.Label(controls, text="Selected Model:").pack(side=tk.LEFT, padx=(15, 5))
         self.model_var = tk.StringVar()
         self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, 
                                         width=20, state='readonly')
